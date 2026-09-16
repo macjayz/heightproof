@@ -2,16 +2,16 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: sentinel
-      POSTGRES_PASSWORD: sentinel
-      POSTGRES_DB: sentinel
+      POSTGRES_USER: heightproof
+      POSTGRES_PASSWORD: heightproof
+      POSTGRES_DB: heightproof
     ports:
       - "5432:5432"
     volumes:
-      - sentinel-postgres:/var/lib/postgresql/data
+      - heightproof-postgres:/var/lib/postgresql/data
       - ./infra/migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sentinel"]
+      test: ["CMD-SHELL", "pg_isready -U heightproof"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -34,18 +34,18 @@ services:
         WORKSPACE: apps/api
     environment:
       PORT: 8080
-      DATABASE_URL: postgres://sentinel:sentinel@postgres:5432/sentinel
+      DATABASE_URL: postgres://heightproof:heightproof@postgres:5432/heightproof
       REDIS_URL: redis://redis:6379
-      SENTINEL_API_KEY: dev-sentinel-key
+      HEIGHTPROOF_API_KEY: dev-heightproof-key
       # These three flags default to disabled whenever NODE_ENV=production (which the API's own
       # Dockerfile sets). They're explicit here, not just relying on that default, because they're
       # what makes `docker compose up --build` usable out of the box: a demo login, the shared dev
       # API key, and sample traffic so the dashboard isn't empty on first boot. Removing them is
       # safe (the stack still runs) but breaks the zero-config demo experience for new users. Do not
       # set any of these to "true" on a real deployment you're exposing publicly.
-      SENTINEL_ALLOW_DEV_FALLBACK_KEY: "true"
-      SENTINEL_BOOTSTRAP_DEMO_USER: "true"
-      SENTINEL_SEED_DEMO_EVENTS: "true"
+      HEIGHTPROOF_ALLOW_DEV_FALLBACK_KEY: "true"
+      HEIGHTPROOF_BOOTSTRAP_DEMO_USER: "true"
+      HEIGHTPROOF_SEED_DEMO_EVENTS: "true"
     ports:
       - "8080:8080"
     depends_on:
@@ -61,7 +61,7 @@ services:
       args:
         WORKSPACE: apps/worker
     environment:
-      DATABASE_URL: postgres://sentinel:sentinel@postgres:5432/sentinel
+      DATABASE_URL: postgres://heightproof:heightproof@postgres:5432/heightproof
       REDIS_URL: redis://redis:6379
     depends_on:
       postgres:
@@ -74,11 +74,11 @@ services:
       context: .
       dockerfile: infra/dashboard.Dockerfile
     environment:
-      VITE_SENTINEL_API_URL: http://localhost:8080
+      VITE_HEIGHTPROOF_API_URL: http://localhost:8080
     ports:
       - "5173:5173"
     depends_on:
       - api
 
 volumes:
-  sentinel-postgres:
+  heightproof-postgres:

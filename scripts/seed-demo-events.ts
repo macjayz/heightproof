@@ -1,9 +1,9 @@
-import { buildDemoEvents } from "@sentinel/shared";
+import { buildDemoEvents } from "@heightproof/shared";
 
-const endpoint = process.env.SENTINEL_ENDPOINT ?? "http://localhost:8080";
-const apiKey = process.env.SENTINEL_API_KEY ?? "dev-sentinel-key";
-const projectId = process.env.SENTINEL_PROJECT_ID ?? "demo";
-const serviceName = process.env.SENTINEL_SERVICE_NAME ?? "demo-api";
+const endpoint = process.env.HEIGHTPROOF_ENDPOINT ?? "http://localhost:8080";
+const apiKey = process.env.HEIGHTPROOF_API_KEY ?? "dev-heightproof-key";
+const projectId = process.env.HEIGHTPROOF_PROJECT_ID ?? "demo";
+const serviceName = process.env.HEIGHTPROOF_SERVICE_NAME ?? "demo-api";
 
 const events = buildDemoEvents({ projectId, serviceName });
 
@@ -12,7 +12,7 @@ for (const batch of chunk(events, 50)) {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-sentinel-api-key": apiKey
+      "x-heightproof-api-key": apiKey
     },
     body: JSON.stringify({ events: batch })
   });

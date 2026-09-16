@@ -7,7 +7,7 @@ import {
   isVerifiableMethod,
   pinBlockTag,
   type ResultShape
-} from "@sentinel/shared";
+} from "@heightproof/shared";
 
 /**
  * Cross-provider verification (detector D2).

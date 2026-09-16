@@ -1,5 +1,5 @@
 import pg from "pg";
-import { withSpan } from "@sentinel/shared";
+import { withSpan } from "@heightproof/shared";
 
 export type AlertRule = {
   id: string;
@@ -90,8 +90,8 @@ export async function evaluateAlertRules(
 
   for (const rule of rules) {
     await withSpan(
-      "sentinel.worker.evaluate_alert_rule",
-      { "sentinel.alert_rule_id": rule.id, "sentinel.alert_rule_metric": rule.metric },
+      "heightproof.worker.evaluate_alert_rule",
+      { "heightproof.alert_rule_id": rule.id, "heightproof.alert_rule_metric": rule.metric },
       async () => {
         const value = await evaluateAlertRuleMetric(pool, rule);
         if (value !== null && value > rule.threshold) {

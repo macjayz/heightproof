@@ -1,5 +1,5 @@
 {
-  "name": "@sentinel/worker",
+  "name": "@heightproof/worker",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@sentinel/shared": "0.1.0",
+    "@heightproof/shared": "0.1.0",
     "ioredis": "^5.4.1",
     "pg": "^8.12.0"
   },

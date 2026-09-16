@@ -13,7 +13,7 @@ describe("seedDemoEventsIfEmpty", () => {
     const pool = { query: vi.fn().mockResolvedValue({ rows: [{ "?column?": 1 }] }) };
     const redis = {} as never;
 
-    const seeded = await seedDemoEventsIfEmpty(pool as never, redis, "sentinel:events", "demo");
+    const seeded = await seedDemoEventsIfEmpty(pool as never, redis, "heightproof:events", "demo");
 
     expect(seeded).toBe(0);
     expect(enqueueEvents).not.toHaveBeenCalled();
@@ -23,7 +23,7 @@ describe("seedDemoEventsIfEmpty", () => {
     const pool = { query: vi.fn().mockResolvedValue({ rows: [] }) };
     const redis = {} as never;
 
-    const seeded = await seedDemoEventsIfEmpty(pool as never, redis, "sentinel:events", "demo");
+    const seeded = await seedDemoEventsIfEmpty(pool as never, redis, "heightproof:events", "demo");
 
     expect(seeded).toBeGreaterThan(0);
     expect(enqueueEvents).toHaveBeenCalledOnce();
@@ -36,7 +36,7 @@ describe("seedDemoEventsIfEmpty", () => {
     const pool = { query: vi.fn().mockResolvedValue({ rows: [] }) };
     const redis = {} as never;
 
-    await seedDemoEventsIfEmpty(pool as never, redis, "sentinel:events", "checkout");
+    await seedDemoEventsIfEmpty(pool as never, redis, "heightproof:events", "checkout");
 
     const [, , events] = enqueueEvents.mock.calls[0] as [unknown, string, Array<{ projectId: string }>];
     expect(events.every((event) => event.projectId === "checkout")).toBe(true);

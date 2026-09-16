@@ -145,7 +145,7 @@ export function chainBlockTimeMs(chainId: string | undefined): number | undefine
  *
  * Provider URLs embed API keys (`https://eth-mainnet.g.alchemy.com/v2/<KEY>`), so the URL
  * itself must never be persisted or transmitted. This lets two endpoints be told apart
- * without Sentinel ever holding the credential.
+ * without Heightproof ever holding the credential.
  */
 export function hashEndpoint(url: string): string {
   return createHash("sha256").update(url).digest("hex").slice(0, 32);

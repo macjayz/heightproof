@@ -1,6 +1,6 @@
-# Sentinel Architecture
+# Heightproof Architecture
 
-This document describes how Sentinel is actually built: the runtime topology, the event
+This document describes how Heightproof is actually built: the runtime topology, the event
 abstraction everything flows through, the worker's processing pipeline, the data model, and the
 trust boundaries around authentication. It supersedes the shorter note that used to live at
 `docs/architecture.md`. For the reasoning behind specific technology choices, see the ADRs linked
@@ -8,7 +8,7 @@ at the bottom rather than duplicated here.
 
 ## 1. Overview
 
-Sentinel is a self-hosted API security and observability platform for Node.js applications. It
+Heightproof is a self-hosted API security and observability platform for Node.js applications. It
 watches REST, GraphQL, and EVM JSON-RPC traffic through a lightweight SDK, normalizes everything
 into one event shape, scores each event for threat signals, groups related signals into incidents,
 and surfaces all of it in a dashboard with live updates.
@@ -18,7 +18,7 @@ watches: the SDK captures data in-process and ships it asynchronously, the inges
 minimum work needed to accept and queue a batch, and every expensive operation — threat scoring,
 incident correlation, error grouping, alert delivery — happens in a separate worker process against
 its own database connection pool. A slow query in the analytics path, or a saturated worker, can
-degrade Sentinel's own visibility, but it cannot make a monitored request wait longer for its own
+degrade Heightproof's own visibility, but it cannot make a monitored request wait longer for its own
 response. This is also, deliberately, more than a threat-score gadget: the same event pipeline
 that powers threat detection also powers request-latency and error observability, so operators get
 one system for "is this endpoint slow" and "is this endpoint under attack" instead of two.
@@ -28,8 +28,8 @@ one system for "is this endpoint slow" and "is this endpoint under attack" inste
 ```mermaid
 flowchart LR
     subgraph App["Monitored Application"]
-        SDK["@sentinel/sdk-node\n(Express middleware)"]
-        Web3SDK["@sentinel/web3\n(EVM RPC client / EIP-1193 wrapper)"]
+        SDK["@heightproof/sdk-node\n(Express middleware)"]
+        Web3SDK["@heightproof/web3\n(EVM RPC client / EIP-1193 wrapper)"]
     end
 
     subgraph API["apps/api (Fastify)"]
@@ -38,7 +38,7 @@ flowchart LR
         Live["WebSocket /live\n(live.ts)"]
     end
 
-    Redis[("Redis Stream\nsentinel:events")]
+    Redis[("Redis Stream\nheightproof:events")]
 
     subgraph Worker["apps/worker"]
         Tick["tick(): consume + score + persist"]
@@ -50,10 +50,10 @@ flowchart LR
     Dest["Alert destination\nwebhooks (alert_destinations)"]
     Dash["apps/dashboard (React)"]
 
-    SDK -- "batched HTTP POST\nx-sentinel-api-key" --> Ingest
+    SDK -- "batched HTTP POST\nx-heightproof-api-key" --> Ingest
     Web3SDK -- "batched HTTP POST" --> Ingest
     Ingest -- "XADD" --> Redis
-    Redis -- "XREADGROUP\n(consumer group: sentinel-workers)" --> Tick
+    Redis -- "XREADGROUP\n(consumer group: heightproof-workers)" --> Tick
     Tick -- "INSERT api_events\nUPSERT incidents / error_groups" --> PG
     Tick -. "queues alert_deliveries\nfor high/critical incidents" .-> PG
     AlertEval -- "reads api_events,\nraises incidents" --> PG
@@ -73,8 +73,8 @@ created (worker → `alert_deliveries` row → webhook `POST` to whatever URLs a
 
 ## 3. The event abstraction
 
-Every signal Sentinel ingests — a REST call, a GraphQL operation, an EVM JSON-RPC call — is
-normalized into one shape: `SentinelEvent`, defined as a Zod schema in
+Every signal Heightproof ingests — a REST call, a GraphQL operation, an EVM JSON-RPC call — is
+normalized into one shape: `HeightproofEvent`, defined as a Zod schema in
 `packages/shared/src/index.ts`. This is the single contract the whole system is built around:
 the SDKs produce it, the ingestion API validates it, the worker consumes it, and every downstream
 table and dashboard view is ultimately a projection of it.
@@ -92,17 +92,17 @@ The schema's shape reflects what actually gets used downstream:
 - `evmRpc`: optional `method`, `chainId`, `provider`, `walletAddress`, `contractAddress`, populated
   only when `kind === "evm_rpc"`.
 - `error`: optional `type` / `message` / `stack`, populated when the SDK captured an exception via
-  `sentinelErrorHandler()`.
+  `heightproofErrorHandler()`.
 
-Batches are validated as `EventBatchSchema`, an array of 1–100 `SentinelEvent`s
-(`z.array(SentinelEventSchema).min(1).max(100)`).
+Batches are validated as `EventBatchSchema`, an array of 1–100 `HeightproofEvent`s
+(`z.array(HeightproofEventSchema).min(1).max(100)`).
 
 The payoff of this abstraction is extensibility (expanded in §12): `classifyTraffic()` in
 `packages/shared/src/index.ts` is the only place that decides what "kind" of traffic something is
 (GraphQL is detected by path, EVM RPC by a `jsonrpc` + `method` body shape), and everything after
 that point — scoring, persistence, incident grouping, the dashboard — operates on the same
-`SentinelEvent` regardless of transport. A new SDK for a new runtime only has to produce a
-conformant `SentinelEvent`; it doesn't need to know anything about Redis, Postgres, or how
+`HeightproofEvent` regardless of transport. A new SDK for a new runtime only has to produce a
+conformant `HeightproofEvent`; it doesn't need to know anything about Redis, Postgres, or how
 incidents get raised.
 
 ## 4. Ingestion path
@@ -110,8 +110,8 @@ incidents get raised.
 `POST /v1/events` in `apps/api/src/server.ts` does exactly four things, in order, and nothing more:
 
 1. **Resolve the API key.** `resolveProjectForApiKey()` (`apps/api/src/db.ts`) checks the
-   `x-sentinel-api-key` header against two possible identities: the shared fallback key
-   (`SENTINEL_API_KEY`, defaulting to `dev-sentinel-key`) for local development, or a real,
+   `x-heightproof-api-key` header against two possible identities: the shared fallback key
+   (`HEIGHTPROOF_API_KEY`, defaulting to `dev-heightproof-key`) for local development, or a real,
    project-scoped key looked up by its SHA-256 hash in the `api_keys` table
    (`key_hash = sha256(apiKey)`, `revoked_at is null`). A hit updates `last_used_at`. A miss on
    both returns `401 invalid_api_key`.
@@ -139,13 +139,13 @@ bottom of the file): `tick()`, `deliverAlerts()`, `checkAlertRules()` (rate-limi
 the worker is a simple single-process consumer with no internal concurrency beyond what Postgres
 and Redis give it for free.
 
-`tick()` reads up to 25 messages via `XREADGROUP` against the `sentinel-workers` consumer group
+`tick()` reads up to 25 messages via `XREADGROUP` against the `heightproof-workers` consumer group
 (`BLOCK 5000` so it doesn't spin when idle), and for each message:
 
-1. Parses the JSON payload back into a `SentinelEvent` with `SentinelEventSchema.safeParse`. A
+1. Parses the JSON payload back into a `HeightproofEvent` with `HeightproofEventSchema.safeParse`. A
    parse failure is silently acknowledged and dropped — there is no dead-letter path today.
 2. On success, wraps the rest of the work in an OpenTelemetry span
-   (`sentinel.worker.process_event`) and:
+   (`heightproof.worker.process_event`) and:
    - Fetches context needed for scoring in parallel: `countRecentIpRequests()` (requests from this
      IP in the last minute, for the generic rate-anomaly signal) and `getWeb3ThreatContext()`
      (only populated when `kind === "evm_rpc"`; see below).
@@ -377,22 +377,22 @@ adding an FK would mean an index lookup against `projects` on every ingested eve
 
 ## 7. Authentication and authorization
 
-Sentinel has two authentication mechanisms that coexist, and understanding where the line between
+Heightproof has two authentication mechanisms that coexist, and understanding where the line between
 them falls is important for reasoning about who can do what.
 
 **Project-scoped API keys** (`apps/api/src/db.ts`, `resolveProjectForApiKey` /
 `hashApiKey`/`createApiKey`) authenticate SDK ingestion traffic and, when passed on read routes,
-also scope analytics reads to a project. A real key looks like `sentinel_<24 random bytes,
+also scope analytics reads to a project. A real key looks like `heightproof_<24 random bytes,
 base64url>`; only its SHA-256 hash is stored (`key_hash`), alongside a non-secret `prefix` used for
-display in the dashboard's key list. There's also a special case: the value of `SENTINEL_API_KEY`
-(the "shared fallback key," `dev-sentinel-key` by default) is accepted directly without a database
+display in the dashboard's key list. There's also a special case: the value of `HEIGHTPROOF_API_KEY`
+(the "shared fallback key," `dev-heightproof-key` by default) is accepted directly without a database
 lookup and defaults callers to the `demo` project (or `?projectId=` if supplied) — this is what
 lets `docker compose up` work out of the box without provisioning a real key first.
 
 **Dashboard sessions** (`apps/api/src/auth.ts`, `apps/api/src/db.ts`) authenticate human operators.
 Passwords are hashed with scrypt (`hashPassword`/`verifyPassword`, 16-byte random salt, 64-byte
 derived key, constant-time comparison). On login, a session token
-(`sentinel_session_<32 random bytes, base64url>`) is generated, SHA-256-hashed, and stored in
+(`heightproof_session_<32 random bytes, base64url>`) is generated, SHA-256-hashed, and stored in
 `sessions.token_hash` with a 7-day expiry (`SESSION_TTL_MS`); the raw token is only ever handed to
 the client once, in the login response, as a bearer token. `getBearerToken()` pulls it from the
 `Authorization: Bearer ...` header on subsequent requests. Roles — `owner` > `admin` > `developer`
@@ -439,7 +439,7 @@ every published message (`{channel, payload}` as JSON), and the dashboard filter
 client-side. Two events are published today: `events.accepted` from the ingestion route (a live
 counter of accepted batches) and `incident.updated` from `PATCH /v1/incidents/:id/status` (so an
 operator changing an incident's status in one browser tab is reflected live in another). Publishing
-is itself wrapped in an OpenTelemetry span (`sentinel.websocket.publish`) with the channel name and
+is itself wrapped in an OpenTelemetry span (`heightproof.websocket.publish`) with the channel name and
 current client count as attributes. Note that the worker does not publish to this hub directly —
 newly created incidents and freshly scored events reach the dashboard by polling the analytics
 routes, not over the WebSocket; live-tail today is a thin layer on top of the ingestion and
@@ -468,8 +468,8 @@ Nothing in the compose file runs as root inside its container.
 
 ## 11. Failure handling and reliability
 
-**Redis stream consumer group.** The worker joins the `sentinel-workers` consumer group on stream
-`sentinel:events` (`XGROUP CREATE ... $ MKSTREAM`, tolerating the `BUSYGROUP` error if the group
+**Redis stream consumer group.** The worker joins the `heightproof-workers` consumer group on stream
+`heightproof:events` (`XGROUP CREATE ... $ MKSTREAM`, tolerating the `BUSYGROUP` error if the group
 already exists) under a consumer name of `worker-${process.pid}` by default
 (`apps/worker/src/config.ts`). Redis Streams' consumer-group semantics mean that if you run more
 than one worker process against the same group, each stream message is delivered to exactly one
@@ -481,7 +481,7 @@ finishing) stays in that consumer's Pending Entries List until something claims 
 gap worth knowing about if you're evaluating this for production use beyond its stated MVP scope.
 
 **At-least-once processing, not exactly-once.** Within `tick()`, `XACK` is only called after the
-per-message `withSpan("sentinel.worker.process_event", ...)` block completes without throwing —
+per-message `withSpan("heightproof.worker.process_event", ...)` block completes without throwing —
 it's the last line of the loop body, after persistence, incident creation, and error-group
 recording. If any of those steps throws, the exception propagates out of `withSpan` (which records
 it and re-raises) and the `XACK` call is skipped, leaving the message pending for eventual
@@ -506,15 +506,15 @@ instrumenting anything themselves.
 ## 12. Extensibility
 
 Because everything downstream of ingestion — scoring, persistence, incident correlation, error
-grouping, the dashboard's queries — operates purely on `SentinelEvent`, adding support for a new
+grouping, the dashboard's queries — operates purely on `HeightproofEvent`, adding support for a new
 source of traffic is a matter of producing conformant events, not modifying the pipeline. A
 hypothetical Python SDK, an Nginx log-tailing agent, or a Lambda extension (all named in
 `docs/roadmap.md`'s "Later" section) would need to: shape its captured request/response data into
-`SentinelEvent`, `POST` it in batches of up to 100 to `/v1/events` with a valid project API key, and
+`HeightproofEvent`, `POST` it in batches of up to 100 to `/v1/events` with a valid project API key, and
 nothing else — it doesn't need to know about Redis Streams, the worker's threat-scoring rules, or
 how the dashboard renders incidents. The `kind` field and its optional `graphQL`/`evmRpc` sub-shapes
 are the only places a genuinely new traffic type would need a schema addition (as EVM RPC support
-already demonstrates: `packages/web3` is a ~180-line package that reuses `SentinelClient` from
+already demonstrates: `packages/web3` is a ~180-line package that reuses `HeightproofClient` from
 `packages/sdk-node` wholesale and only adds its own event-shaping logic).
 
 ## Links

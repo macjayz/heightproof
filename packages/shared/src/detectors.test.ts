@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assessThreat, type SentinelEvent } from "./index.js";
+import { assessThreat, type HeightproofEvent } from "./index.js";
 import {
   detectCostWaste,
   detectDisagreement,
@@ -9,7 +9,7 @@ import {
   detectThrottling
 } from "./detectors.js";
 
-function rpcEvent(evmRpc: Partial<NonNullable<SentinelEvent["evmRpc"]>> = {}): SentinelEvent {
+function rpcEvent(evmRpc: Partial<NonNullable<HeightproofEvent["evmRpc"]>> = {}): HeightproofEvent {
   return {
     id: "event-detector-1",
     projectId: "demo",

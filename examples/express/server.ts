@@ -1,16 +1,16 @@
 import bodyParser from "body-parser";
 import express from "express";
-import { sentinelErrorHandler, sentinelExpress } from "@sentinel/sdk-node";
+import { heightproofErrorHandler, heightproofExpress } from "@heightproof/sdk-node";
 
 const app = express();
-const users: Array<{ id: string; email: string }> = [{ id: "1", email: "demo@sentinel.local" }];
+const users: Array<{ id: string; email: string }> = [{ id: "1", email: "demo@heightproof.local" }];
 
 app.use(bodyParser.json());
 app.use(
-  sentinelExpress({
+  heightproofExpress({
     projectId: "demo",
-    apiKey: process.env.SENTINEL_API_KEY ?? "dev-sentinel-key",
-    endpoint: process.env.SENTINEL_ENDPOINT ?? "http://localhost:8080",
+    apiKey: process.env.HEIGHTPROOF_API_KEY ?? "dev-heightproof-key",
+    endpoint: process.env.HEIGHTPROOF_ENDPOINT ?? "http://localhost:8080",
     serviceName: "example-api",
     redaction: {
       fields: ["cardNumber", "walletPrivateKey"]
@@ -43,9 +43,9 @@ app.get("/api/users/:id", (req, res, next) => {
   }
 });
 
-// sentinelErrorHandler must be registered after all routes, following Express's
+// heightproofErrorHandler must be registered after all routes, following Express's
 // error-handling middleware convention, so it can capture whatever they throw.
-app.use(sentinelErrorHandler());
+app.use(heightproofErrorHandler());
 
 app.listen(4000, () => {
   console.log("Example API listening on http://localhost:4000");

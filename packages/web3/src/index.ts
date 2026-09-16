@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { SentinelClient } from "@sentinel/sdk-node";
+import { HeightproofClient } from "@heightproof/sdk-node";
 import {
   classifyResultShape,
   extractBlockHash,
@@ -15,8 +15,8 @@ import {
   DEFAULT_METHOD_COST_UNITS,
   redactValue,
   type RedactionConfig,
-  type SentinelEvent
-} from "@sentinel/shared";
+  type HeightproofEvent
+} from "@heightproof/shared";
 import { RpcVerifier, type VerificationEndpoint, type VerificationOptions } from "./verify.js";
 
 export type JsonRpcParams = readonly unknown[] | Record<string, unknown>;
@@ -30,7 +30,7 @@ export type Eip1193Provider = {
   request(args: JsonRpcRequest): Promise<unknown>;
 };
 
-export type SentinelWeb3Options = {
+export type HeightproofWeb3Options = {
   projectId: string;
   apiKey: string;
   endpoint: string;
@@ -62,7 +62,7 @@ type RpcOutcome = {
   statusCode: number;
 };
 
-export function wrapEip1193Provider(provider: Eip1193Provider, options: SentinelWeb3Options): Eip1193Provider {
+export function wrapEip1193Provider(provider: Eip1193Provider, options: HeightproofWeb3Options): Eip1193Provider {
   const recorder = new RpcRecorder(options);
 
   return {
@@ -77,9 +77,9 @@ export function wrapEip1193Provider(provider: Eip1193Provider, options: Sentinel
   };
 }
 
-export function createSentinelRpcClient(options: SentinelWeb3Options) {
+export function createHeightproofRpcClient(options: HeightproofWeb3Options) {
   if (!options.rpcUrl) {
-    throw new Error("rpcUrl is required when creating a standalone Sentinel RPC client");
+    throw new Error("rpcUrl is required when creating a standalone Heightproof RPC client");
   }
 
   const recorder = new RpcRecorder(options);
@@ -118,13 +118,13 @@ export function createSentinelRpcClient(options: SentinelWeb3Options) {
   };
 }
 
-export function sentinelTransport(options: SentinelWeb3Options) {
-  const client = createSentinelRpcClient(options);
+export function heightproofTransport(options: HeightproofWeb3Options) {
+  const client = createHeightproofRpcClient(options);
 
   return () => ({
     config: {
-      key: "sentinel",
-      name: "Sentinel RPC",
+      key: "heightproof",
+      name: "Heightproof RPC",
       request: client.request,
       type: "http"
     },
@@ -133,14 +133,14 @@ export function sentinelTransport(options: SentinelWeb3Options) {
 }
 
 class RpcRecorder {
-  private readonly client: SentinelClient;
+  private readonly client: HeightproofClient;
   private readonly endpointHash?: string;
   private readonly costTable: Record<string, number>;
   private readonly verifier?: RpcVerifier;
   private readonly headSourceUrl?: string;
 
-  constructor(private readonly options: SentinelWeb3Options) {
-    this.client = new SentinelClient({
+  constructor(private readonly options: HeightproofWeb3Options) {
+    this.client = new HeightproofClient({
       projectId: options.projectId,
       apiKey: options.apiKey,
       endpoint: options.endpoint,
@@ -191,7 +191,7 @@ class RpcRecorder {
     const params = args.params ?? [];
     const failed = !isSuccessStatus(outcome.statusCode) || Boolean(outcome.rpcError);
 
-    const event: SentinelEvent = {
+    const event: HeightproofEvent = {
       id: randomUUID(),
       traceId,
       projectId: this.options.projectId,

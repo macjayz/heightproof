@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { SentinelEvent } from "./index.js";
+import { HeightproofEvent } from "./index.js";
 
-export function buildDemoEvents(options: { projectId: string; serviceName: string }): SentinelEvent[] {
+export function buildDemoEvents(options: { projectId: string; serviceName: string }): HeightproofEvent[] {
   const { projectId, serviceName } = options;
   const now = Date.now();
 
@@ -82,17 +82,17 @@ function httpEvent(input: {
   serviceName: string;
   now: number;
   index: number;
-  method: SentinelEvent["request"]["method"];
+  method: HeightproofEvent["request"]["method"];
   path: string;
   route: string;
   statusCode: number;
   latencyMs: number;
   ip: string;
   authFailed?: boolean;
-  kind?: SentinelEvent["kind"];
-  graphQL?: SentinelEvent["graphQL"];
-  evmRpc?: SentinelEvent["evmRpc"];
-}): SentinelEvent {
+  kind?: HeightproofEvent["kind"];
+  graphQL?: HeightproofEvent["graphQL"];
+  evmRpc?: HeightproofEvent["evmRpc"];
+}): HeightproofEvent {
   return {
     id: randomUUID(),
     traceId: randomBytesHex(16),
@@ -129,7 +129,7 @@ function httpEvent(input: {
   };
 }
 
-function requestBody(input: { kind?: SentinelEvent["kind"]; graphQL?: SentinelEvent["graphQL"]; evmRpc?: SentinelEvent["evmRpc"] }) {
+function requestBody(input: { kind?: HeightproofEvent["kind"]; graphQL?: HeightproofEvent["graphQL"]; evmRpc?: HeightproofEvent["evmRpc"] }) {
   if (input.kind === "graphql") {
     return {
       operationName: input.graphQL?.operationName,

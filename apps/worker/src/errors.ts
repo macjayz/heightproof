@@ -1,4 +1,4 @@
-import { normalizeErrorMessage, SentinelEvent } from "@sentinel/shared";
+import { normalizeErrorMessage, HeightproofEvent } from "@heightproof/shared";
 
 export type ErrorFingerprint = {
   key: string;
@@ -7,7 +7,7 @@ export type ErrorFingerprint = {
   affectedEndpoint: string;
 };
 
-export function fingerprintError(event: SentinelEvent): ErrorFingerprint | null {
+export function fingerprintError(event: HeightproofEvent): ErrorFingerprint | null {
   if (!event.error) return null;
 
   const affectedEndpoint = `${event.request.method} ${event.request.route ?? event.request.path}`;

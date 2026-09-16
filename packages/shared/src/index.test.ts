@@ -7,8 +7,8 @@ import {
   normalizeRoutePath,
   redactHeaders,
   redactValue,
-  SentinelEvent,
-  SentinelEventSchema
+  HeightproofEvent,
+  HeightproofEventSchema
 } from "./index.js";
 
 describe("shared security helpers", () => {
@@ -54,7 +54,7 @@ describe("shared security helpers", () => {
   });
 
   it("scores high-risk rpc requests", () => {
-    const event: SentinelEvent = {
+    const event: HeightproofEvent = {
       id: "event-123",
       traceId: "0123456789abcdef0123456789abcdef",
       projectId: "project",
@@ -76,7 +76,7 @@ describe("shared security helpers", () => {
     expect(assessThreat(event, 130).severity).toBe("critical");
   });
 
-  const rpcEvent: SentinelEvent = {
+  const rpcEvent: HeightproofEvent = {
     id: "event-rpc-1",
     projectId: "project",
     serviceName: "web3-rpc",
@@ -106,7 +106,7 @@ describe("shared security helpers", () => {
   });
 
   it("flags a transaction burst against a wallet's baseline", () => {
-    const txEvent: SentinelEvent = {
+    const txEvent: HeightproofEvent = {
       ...rpcEvent,
       evmRpc: { method: "eth_sendRawTransaction", walletAddress: "0xabc" }
     };
@@ -120,7 +120,7 @@ describe("shared security helpers", () => {
   });
 
   it("does not flag a transaction burst within normal wallet activity", () => {
-    const txEvent: SentinelEvent = {
+    const txEvent: HeightproofEvent = {
       ...rpcEvent,
       evmRpc: { method: "eth_sendRawTransaction", walletAddress: "0xabc" }
     };
@@ -176,7 +176,7 @@ describe("buildDemoEvents", () => {
   it("produces events that pass the real ingestion schema", () => {
     const events = buildDemoEvents({ projectId: "demo", serviceName: "demo-api" });
     for (const event of events) {
-      expect(SentinelEventSchema.safeParse(event).success).toBe(true);
+      expect(HeightproofEventSchema.safeParse(event).success).toBe(true);
     }
   });
 

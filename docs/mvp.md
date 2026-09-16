@@ -1,8 +1,8 @@
-# Sentinel MVP Boundary
+# Heightproof MVP Boundary
 
 ## Build Now
 
-The first public version should prove that Sentinel can be installed into a real Node.js API, capture useful telemetry, detect suspicious behavior, and show it in a self-hosted dashboard.
+The first public version should prove that Heightproof can be installed into a real Node.js API, capture useful telemetry, detect suspicious behavior, and show it in a self-hosted dashboard.
 
 Required capabilities:
 
@@ -42,7 +42,7 @@ These features are deliberately excluded until the core pipeline is working:
 
 ## Success Criteria
 
-- A developer can add Sentinel middleware to an Express app in under five minutes.
+- A developer can add Heightproof middleware to an Express app in under five minutes.
 - Events are accepted by an ingestion API, queued, processed, and persisted.
 - Sensitive values are redacted before storage.
 - The dashboard shows endpoints, latency, errors, IP activity, threat scores, and incidents.

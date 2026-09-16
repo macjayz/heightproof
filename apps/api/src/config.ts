@@ -2,7 +2,7 @@ export type ApiConfig = {
   port: number;
   databaseUrl: string;
   redisUrl: string;
-  sentinelApiKey: string;
+  heightproofApiKey: string;
   allowDevFallbackApiKey: boolean;
   bootstrapDemoUser: boolean;
   seedDemoEvents: boolean;
@@ -17,23 +17,23 @@ export function loadConfig(): ApiConfig {
 
   return {
     port: Number(process.env.PORT ?? 8080),
-    databaseUrl: process.env.DATABASE_URL ?? "postgres://sentinel:sentinel@localhost:5432/sentinel",
+    databaseUrl: process.env.DATABASE_URL ?? "postgres://heightproof:heightproof@localhost:5432/heightproof",
     redisUrl: process.env.REDIS_URL ?? "redis://localhost:6379",
-    sentinelApiKey: process.env.SENTINEL_API_KEY ?? "dev-sentinel-key",
+    heightproofApiKey: process.env.HEIGHTPROOF_API_KEY ?? "dev-heightproof-key",
     allowDevFallbackApiKey:
-      process.env.SENTINEL_ALLOW_DEV_FALLBACK_KEY === "true" ||
-      (!isProduction && process.env.SENTINEL_ALLOW_DEV_FALLBACK_KEY !== "false"),
+      process.env.HEIGHTPROOF_ALLOW_DEV_FALLBACK_KEY === "true" ||
+      (!isProduction && process.env.HEIGHTPROOF_ALLOW_DEV_FALLBACK_KEY !== "false"),
     bootstrapDemoUser:
-      process.env.SENTINEL_BOOTSTRAP_DEMO_USER === "true" ||
-      (!isProduction && process.env.SENTINEL_BOOTSTRAP_DEMO_USER !== "false"),
+      process.env.HEIGHTPROOF_BOOTSTRAP_DEMO_USER === "true" ||
+      (!isProduction && process.env.HEIGHTPROOF_BOOTSTRAP_DEMO_USER !== "false"),
     // Only ever seeds the "demo" project, and only when it's genuinely empty (see seedDemoEventsIfEmpty
     // in seed.ts) — never touches a real signed-up user's project, and never re-seeds on every restart.
     seedDemoEvents:
-      process.env.SENTINEL_SEED_DEMO_EVENTS === "true" ||
-      (!isProduction && process.env.SENTINEL_SEED_DEMO_EVENTS !== "false"),
-    streamName: process.env.SENTINEL_STREAM ?? "sentinel:events",
-    groupName: process.env.SENTINEL_GROUP ?? "sentinel-workers",
-    adminEmail: process.env.SENTINEL_ADMIN_EMAIL ?? "owner@sentinel.local",
-    adminPassword: process.env.SENTINEL_ADMIN_PASSWORD ?? "sentinel-demo"
+      process.env.HEIGHTPROOF_SEED_DEMO_EVENTS === "true" ||
+      (!isProduction && process.env.HEIGHTPROOF_SEED_DEMO_EVENTS !== "false"),
+    streamName: process.env.HEIGHTPROOF_STREAM ?? "heightproof:events",
+    groupName: process.env.HEIGHTPROOF_GROUP ?? "heightproof-workers",
+    adminEmail: process.env.HEIGHTPROOF_ADMIN_EMAIL ?? "owner@heightproof.local",
+    adminPassword: process.env.HEIGHTPROOF_ADMIN_PASSWORD ?? "heightproof-demo"
   };
 }

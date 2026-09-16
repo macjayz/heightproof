@@ -2,7 +2,7 @@ import pg from "pg";
 import {
   redactHeaders,
   redactValue,
-  SentinelEvent,
+  HeightproofEvent,
   ThreatAssessment,
   Web3ThreatContext,
   withSpan,
@@ -12,7 +12,7 @@ import {
   type SilentFailureContext,
   type StaleHeadContext,
   type ThrottlingContext
-} from "@sentinel/shared";
+} from "@heightproof/shared";
 import { AlertRule } from "./alertRules.js";
 import { WorkerConfig } from "./config.js";
 import { fingerprintError } from "./errors.js";
@@ -120,7 +120,7 @@ export async function getProviderRpcStats(pool: pg.Pool, projectId: string, prov
 }
 
 /** The `params` array as the SDK recorded it, used to match a call against earlier identical ones. */
-function rpcParams(event: SentinelEvent): unknown[] | undefined {
+function rpcParams(event: HeightproofEvent): unknown[] | undefined {
   const body = event.request.body;
   if (!body || typeof body !== "object") return undefined;
   const params = (body as { params?: unknown }).params;
@@ -201,7 +201,7 @@ export async function getStaleHeadContext(
 export async function getSilentFailureContext(
   pool: pg.Pool,
   projectId: string,
-  event: SentinelEvent
+  event: HeightproofEvent
 ): Promise<SilentFailureContext> {
   const evmRpc = event.evmRpc;
   if (!evmRpc) return {};
@@ -281,7 +281,7 @@ export async function getSilentFailureContext(
 export async function getCostWasteContext(
   pool: pg.Pool,
   projectId: string,
-  event: SentinelEvent
+  event: HeightproofEvent
 ): Promise<CostWasteContext> {
   const evmRpc = event.evmRpc;
   if (!evmRpc?.blockNumber) return {};
@@ -319,7 +319,7 @@ export async function getCostWasteContext(
 export async function getDisagreementContext(
   pool: pg.Pool,
   projectId: string,
-  event: SentinelEvent
+  event: HeightproofEvent
 ): Promise<DisagreementContext> {
   const evmRpc = event.evmRpc;
   if (!evmRpc?.shadowOfTraceId || !evmRpc.blockNumber || !evmRpc.resultHash) return {};
@@ -366,7 +366,7 @@ export async function getDisagreementContext(
 export async function getReorgContext(
   pool: pg.Pool,
   projectId: string,
-  event: SentinelEvent
+  event: HeightproofEvent
 ): Promise<ReorgContext> {
   const evmRpc = event.evmRpc;
   if (!evmRpc?.blockHash || !evmRpc.blockNumber || !evmRpc.chainId) return {};
@@ -482,7 +482,7 @@ export async function getThrottlingContext(
   };
 }
 
-export async function getWeb3ThreatContext(pool: pg.Pool, event: SentinelEvent): Promise<Web3ThreatContext> {
+export async function getWeb3ThreatContext(pool: pg.Pool, event: HeightproofEvent): Promise<Web3ThreatContext> {
   if (event.kind !== "evm_rpc" || !event.evmRpc) return {};
 
   const [
@@ -529,16 +529,16 @@ export async function getWeb3ThreatContext(pool: pg.Pool, event: SentinelEvent):
   };
 }
 
-export async function persistEvent(pool: pg.Pool, event: SentinelEvent, assessment: ThreatAssessment) {
+export async function persistEvent(pool: pg.Pool, event: HeightproofEvent, assessment: ThreatAssessment) {
   const requestHeaders = redactHeaders(event.request.headers);
   const requestBody = redactValue(event.request.body ?? null);
 
   await withSpan(
-    "sentinel.postgres.persist_event",
+    "heightproof.postgres.persist_event",
     {
-      "sentinel.event_id": event.id,
-      "sentinel.trace_id": event.traceId,
-      "sentinel.project_id": event.projectId
+      "heightproof.event_id": event.id,
+      "heightproof.trace_id": event.traceId,
+      "heightproof.project_id": event.projectId
     },
     async () => {
       await pool.query(
@@ -622,7 +622,7 @@ export async function persistEvent(pool: pg.Pool, event: SentinelEvent, assessme
 
 export async function createIncidentIfNeeded(
   pool: pg.Pool,
-  event: SentinelEvent,
+  event: HeightproofEvent,
   assessment: ThreatAssessment
 ) {
   const fingerprint = fingerprintIncident(event, assessment);
@@ -918,7 +918,7 @@ function formatAlertRuleValue(metric: string, value: number): string {
   }
 }
 
-export async function recordErrorGroup(pool: pg.Pool, event: SentinelEvent) {
+export async function recordErrorGroup(pool: pg.Pool, event: HeightproofEvent) {
   const fingerprint = fingerprintError(event);
   if (!fingerprint) return;
 

@@ -1,6 +1,6 @@
 # Security Policy
 
-Sentinel is a security-focused project, but the current implementation is still an MVP.
+Heightproof is a security-focused project, but the current implementation is still an MVP.
 
 ## Reporting Issues
 
@@ -8,7 +8,7 @@ Please open a private security advisory or contact the maintainer before publish
 
 ## Current Security Boundaries
 
-Sentinel currently provides:
+Heightproof currently provides:
 
 - API event collection
 - Metadata redaction
@@ -16,7 +16,7 @@ Sentinel currently provides:
 - Incident creation
 - Self-hosted deployment
 
-Sentinel does not replace:
+Heightproof does not replace:
 
 - A WAF
 - API authentication
@@ -27,4 +27,4 @@ Sentinel does not replace:
 
 ## Secret Handling
 
-Do not send production secrets in request bodies or headers. Sentinel includes configurable redaction, but applications should still avoid collecting sensitive data whenever possible.
+Do not send production secrets in request bodies or headers. Heightproof includes configurable redaction, but applications should still avoid collecting sensitive data whenever possible.

@@ -16,7 +16,7 @@ describe("api observability", () => {
         .fn()
         .mockResolvedValue([
           "name",
-          "sentinel-workers",
+          "heightproof-workers",
           "consumers",
           "1",
           "pending",
@@ -33,8 +33,8 @@ describe("api observability", () => {
       createRuntimeMetrics(),
       pool as never,
       redis as never,
-      "sentinel:events",
-      "sentinel-workers",
+      "heightproof:events",
+      "heightproof-workers",
       liveHub
     );
 
@@ -45,7 +45,7 @@ describe("api observability", () => {
   it("includes pending entries in queue depth", async () => {
     const redis = {
       xinfo: vi.fn().mockResolvedValue([
-        ["name", "sentinel-workers", "consumers", 1, "pending", 3, "last-delivered-id", "1-0", "lag", 7]
+        ["name", "heightproof-workers", "consumers", 1, "pending", 3, "last-delivered-id", "1-0", "lag", 7]
       ]),
       xlen: vi.fn().mockResolvedValue(20)
     };
@@ -54,8 +54,8 @@ describe("api observability", () => {
       createRuntimeMetrics(),
       pool as never,
       redis as never,
-      "sentinel:events",
-      "sentinel-workers",
+      "heightproof:events",
+      "heightproof-workers",
       liveHub
     );
 

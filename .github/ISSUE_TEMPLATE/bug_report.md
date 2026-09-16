@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a reproducible problem in Sentinel
+about: Report a reproducible problem in Heightproof
 title: "bug: "
 labels: bug
 assignees: ""
@@ -18,4 +18,4 @@ assignees: ""
 
 - Node version:
 - Docker version:
-- Sentinel package:
+- Heightproof package:

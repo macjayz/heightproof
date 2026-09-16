@@ -2,7 +2,7 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import Fastify, { FastifyRequest } from "fastify";
 import { z } from "zod";
-import { EventBatchSchema, withSpan } from "@sentinel/shared";
+import { EventBatchSchema, withSpan } from "@heightproof/shared";
 import { roleMeetsMinimum, verifyPassword } from "./auth.js";
 import { loadConfig } from "./config.js";
 import {
@@ -90,17 +90,17 @@ export async function buildServer() {
 
   app.post("/v1/events", async (request, reply) => {
     return withSpan(
-      "sentinel.ingestion.accept_batch",
+      "heightproof.ingestion.accept_batch",
       {
         "http.request_id": request.id,
         "http.route": "/v1/events"
       },
       async () => {
-        const apiKey = String(request.headers["x-sentinel-api-key"] ?? "");
+        const apiKey = String(request.headers["x-heightproof-api-key"] ?? "");
         const key = await resolveProjectForApiKey(
           pool,
           apiKey,
-          config.sentinelApiKey,
+          config.heightproofApiKey,
           undefined,
           config.allowDevFallbackApiKey
         );
@@ -222,12 +222,12 @@ export async function buildServer() {
   });
 
   app.get("/v1/analytics/overview", async (request, reply) => {
-    const scope = await requireProjectScope(pool, config.sentinelApiKey, config.allowDevFallbackApiKey, request, reply);
+    const scope = await requireProjectScope(pool, config.heightproofApiKey, config.allowDevFallbackApiKey, request, reply);
     if (!scope) return;
     return getOverview(pool, scope.projectId);
   });
   app.get("/v1/analytics/incidents", async (request, reply) => {
-    const scope = await requireProjectScope(pool, config.sentinelApiKey, config.allowDevFallbackApiKey, request, reply);
+    const scope = await requireProjectScope(pool, config.heightproofApiKey, config.allowDevFallbackApiKey, request, reply);
     if (!scope) return;
     return getIncidents(pool, scope.projectId);
   });
@@ -241,7 +241,7 @@ export async function buildServer() {
       q?: string;
       limit?: string;
     };
-    const scope = await requireProjectScope(pool, config.sentinelApiKey, config.allowDevFallbackApiKey, request, reply);
+    const scope = await requireProjectScope(pool, config.heightproofApiKey, config.allowDevFallbackApiKey, request, reply);
     if (!scope) return;
 
     return getRequests(pool, {
@@ -256,13 +256,13 @@ export async function buildServer() {
     });
   });
   app.get("/v1/analytics/system", async (request, reply) => {
-    const scope = await requireProjectScope(pool, config.sentinelApiKey, config.allowDevFallbackApiKey, request, reply);
+    const scope = await requireProjectScope(pool, config.heightproofApiKey, config.allowDevFallbackApiKey, request, reply);
     if (!scope) return;
     return buildMetricsSnapshot(metrics, pool, redis, config.streamName, config.groupName, liveHub);
   });
 
   app.get("/v1/api-keys", async (request, reply) => {
-    const scope = await requireProjectScope(pool, config.sentinelApiKey, config.allowDevFallbackApiKey, request, reply);
+    const scope = await requireProjectScope(pool, config.heightproofApiKey, config.allowDevFallbackApiKey, request, reply);
     if (!scope) return;
     return listApiKeys(pool, scope.projectId);
   });
@@ -314,7 +314,7 @@ export async function buildServer() {
   });
 
   app.get("/v1/incidents/:id/timeline", async (request, reply) => {
-    const scope = await requireProjectScope(pool, config.sentinelApiKey, config.allowDevFallbackApiKey, request, reply);
+    const scope = await requireProjectScope(pool, config.heightproofApiKey, config.allowDevFallbackApiKey, request, reply);
     if (!scope) return;
 
     const { id } = request.params as { id: string };
@@ -322,7 +322,7 @@ export async function buildServer() {
   });
 
   app.get("/v1/alert-destinations", async (request, reply) => {
-    const scope = await requireProjectScope(pool, config.sentinelApiKey, config.allowDevFallbackApiKey, request, reply);
+    const scope = await requireProjectScope(pool, config.heightproofApiKey, config.allowDevFallbackApiKey, request, reply);
     if (!scope) return;
     return listAlertDestinations(pool, scope.projectId);
   });
@@ -356,19 +356,19 @@ export async function buildServer() {
   });
 
   app.get("/v1/alert-deliveries", async (request, reply) => {
-    const scope = await requireProjectScope(pool, config.sentinelApiKey, config.allowDevFallbackApiKey, request, reply);
+    const scope = await requireProjectScope(pool, config.heightproofApiKey, config.allowDevFallbackApiKey, request, reply);
     if (!scope) return;
     return listAlertDeliveries(pool, scope.projectId);
   });
 
   app.get("/v1/alert-rules", async (request, reply) => {
-    const scope = await requireProjectScope(pool, config.sentinelApiKey, config.allowDevFallbackApiKey, request, reply);
+    const scope = await requireProjectScope(pool, config.heightproofApiKey, config.allowDevFallbackApiKey, request, reply);
     if (!scope) return;
     return listAlertRules(pool, scope.projectId);
   });
 
   app.get("/v1/errors", async (request, reply) => {
-    const scope = await requireProjectScope(pool, config.sentinelApiKey, config.allowDevFallbackApiKey, request, reply);
+    const scope = await requireProjectScope(pool, config.heightproofApiKey, config.allowDevFallbackApiKey, request, reply);
     if (!scope) return;
     return listErrorGroups(pool, scope.projectId);
   });
@@ -481,7 +481,7 @@ async function requireProjectScope(
   if (sessionScope) return sessionScope;
   if (reply.sent) return null;
 
-  const apiKeyHeader = request.headers["x-sentinel-api-key"];
+  const apiKeyHeader = request.headers["x-heightproof-api-key"];
   if (!apiKeyHeader) {
     reply.code(401).send({ error: "authentication_required" });
     return null;

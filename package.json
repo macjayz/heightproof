@@ -1,5 +1,5 @@
 {
-  "name": "sentinel-platform",
+  "name": "heightproof-platform",
   "version": "0.1.0",
   "private": true,
   "description": "Self-hosted EVM RPC reliability monitoring \u2014 catches the JSON-RPC failures that return 200 OK.",

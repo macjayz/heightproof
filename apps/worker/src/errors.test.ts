@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { SentinelEvent } from "@sentinel/shared";
+import { HeightproofEvent } from "@heightproof/shared";
 import { fingerprintError } from "./errors.js";
 
-const baseEvent: SentinelEvent = {
+const baseEvent: HeightproofEvent = {
   id: "event-1",
   projectId: "demo",
   serviceName: "api",
@@ -26,12 +26,12 @@ describe("fingerprintError", () => {
   });
 
   it("groups the same error type and message on the same endpoint together", () => {
-    const eventA: SentinelEvent = {
+    const eventA: HeightproofEvent = {
       ...baseEvent,
       id: "event-a",
       error: { type: "TypeError", message: "Cannot read property 'email' of undefined" }
     };
-    const eventB: SentinelEvent = {
+    const eventB: HeightproofEvent = {
       ...baseEvent,
       id: "event-b",
       error: { type: "TypeError", message: "Cannot read property 'email' of undefined" }
@@ -41,11 +41,11 @@ describe("fingerprintError", () => {
   });
 
   it("groups messages that only differ by a dynamic id", () => {
-    const eventA: SentinelEvent = {
+    const eventA: HeightproofEvent = {
       ...baseEvent,
       error: { type: "Error", message: "User 4821 not found" }
     };
-    const eventB: SentinelEvent = {
+    const eventB: HeightproofEvent = {
       ...baseEvent,
       error: { type: "Error", message: "User 9042 not found" }
     };
@@ -54,11 +54,11 @@ describe("fingerprintError", () => {
   });
 
   it("keeps different error types on the same endpoint separate", () => {
-    const typeError: SentinelEvent = {
+    const typeError: HeightproofEvent = {
       ...baseEvent,
       error: { type: "TypeError", message: "Cannot read property 'email' of undefined" }
     };
-    const rangeError: SentinelEvent = {
+    const rangeError: HeightproofEvent = {
       ...baseEvent,
       error: { type: "RangeError", message: "Cannot read property 'email' of undefined" }
     };
@@ -67,11 +67,11 @@ describe("fingerprintError", () => {
   });
 
   it("keeps the same error separate across different endpoints", () => {
-    const usersEvent: SentinelEvent = {
+    const usersEvent: HeightproofEvent = {
       ...baseEvent,
       error: { type: "TypeError", message: "Cannot read property 'email' of undefined" }
     };
-    const ordersEvent: SentinelEvent = {
+    const ordersEvent: HeightproofEvent = {
       ...baseEvent,
       request: { ...baseEvent.request, route: "/api/orders/:id" },
       error: { type: "TypeError", message: "Cannot read property 'email' of undefined" }

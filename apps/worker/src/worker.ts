@@ -1,5 +1,5 @@
 import { Redis } from "ioredis";
-import { assessThreat, SentinelEventSchema, withSpan } from "@sentinel/shared";
+import { assessThreat, HeightproofEventSchema, withSpan } from "@heightproof/shared";
 import { deliverPendingAlerts } from "./alerts.js";
 import { evaluateAlertRules } from "./alertRules.js";
 import { loadConfig } from "./config.js";
@@ -47,16 +47,16 @@ export async function runWorker() {
       for (const [messageId, fields] of messages) {
         const eventFieldIndex = fields.findIndex((field: string) => field === "event");
         const eventJson = fields[eventFieldIndex + 1];
-        const parsed = SentinelEventSchema.safeParse(JSON.parse(eventJson));
+        const parsed = HeightproofEventSchema.safeParse(JSON.parse(eventJson));
 
         if (parsed.success) {
           await withSpan(
-            "sentinel.worker.process_event",
+            "heightproof.worker.process_event",
             {
-              "sentinel.event_id": parsed.data.id,
-              "sentinel.trace_id": parsed.data.traceId,
-              "sentinel.project_id": parsed.data.projectId,
-              "sentinel.kind": parsed.data.kind
+              "heightproof.event_id": parsed.data.id,
+              "heightproof.trace_id": parsed.data.traceId,
+              "heightproof.project_id": parsed.data.projectId,
+              "heightproof.kind": parsed.data.kind
             },
             async () => {
               const [recentIpRequests, web3Context] = await Promise.all([

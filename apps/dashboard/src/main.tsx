@@ -196,8 +196,8 @@ type AuthSession = {
   projects: ProjectOption[];
 };
 
-const apiBase = import.meta.env.VITE_SENTINEL_API_URL ?? "http://localhost:8080";
-const demoMode = import.meta.env.VITE_SENTINEL_DEMO_MODE === "true";
+const apiBase = import.meta.env.VITE_HEIGHTPROOF_API_URL ?? "http://localhost:8080";
+const demoMode = import.meta.env.VITE_HEIGHTPROOF_DEMO_MODE === "true";
 
 // Kept in sync with the `sessionToken` state via an effect below. apiFetch is a standalone
 // function (not a hook), so it reads the current token from here rather than from props.
@@ -209,14 +209,14 @@ function App() {
   );
   const [session, setSession] = useState<AuthSession | null>(null);
   const [sessionToken, setSessionToken] = useState<string | null>(
-    () => window.localStorage.getItem("sentinel.dashboard.token")
+    () => window.localStorage.getItem("heightproof.dashboard.token")
   );
   const [initializing, setInitializing] = useState(true);
   const [selectedProjectId, setSelectedProjectId] = useState(
-    () => window.localStorage.getItem("sentinel.dashboard.project") ?? "demo"
+    () => window.localStorage.getItem("heightproof.dashboard.project") ?? "demo"
   );
   const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
-  const [authForm, setAuthForm] = useState({ email: "owner@sentinel.local", password: "" });
+  const [authForm, setAuthForm] = useState({ email: "owner@heightproof.local", password: "" });
   const [signupForm, setSignupForm] = useState({
     email: "",
     password: "",
@@ -236,7 +236,7 @@ function App() {
   const [errorGroups, setErrorGroups] = useState<ErrorGroup[]>(demoErrorGroups);
   const [newDestination, setNewDestination] = useState({
     name: "Security Operations",
-    url: "https://alerts.example.com/sentinel"
+    url: "https://alerts.example.com/heightproof"
   });
   const [newRule, setNewRule] = useState<{ metric: AlertRuleMetric; threshold: string; windowMinutes: string }>({
     metric: "error_rate_percent",
@@ -276,7 +276,7 @@ function App() {
         if (!response.ok) throw new Error("invalid_session");
         setSession((await response.json()) as AuthSession);
       } catch {
-        window.localStorage.removeItem("sentinel.dashboard.token");
+        window.localStorage.removeItem("heightproof.dashboard.token");
         currentSessionToken = null;
         setSessionToken(null);
       } finally {
@@ -301,17 +301,17 @@ function App() {
       }
 
       const data = (await response.json()) as AuthSession & { token: string };
-      window.localStorage.setItem("sentinel.dashboard.token", data.token);
+      window.localStorage.setItem("heightproof.dashboard.token", data.token);
       currentSessionToken = data.token;
       setSessionToken(data.token);
       setSession({ user: data.user, organization: data.organization, projects: data.projects });
       const projectId = data.projects.some((project) => project.id === selectedProjectId)
         ? selectedProjectId
         : (data.projects[0]?.id ?? "demo");
-      window.localStorage.setItem("sentinel.dashboard.project", projectId);
+      window.localStorage.setItem("heightproof.dashboard.project", projectId);
       setSelectedProjectId(projectId);
     } catch {
-      setAuthError("Could not reach the Sentinel API. Confirm the API is running and reachable.");
+      setAuthError("Could not reach the Heightproof API. Confirm the API is running and reachable.");
     } finally {
       setAuthSubmitting(false);
     }
@@ -334,8 +334,8 @@ function App() {
 
       const data = (await response.json()) as AuthSession & { token: string; apiKey: ApiKeyRecord };
       const projectId = data.projects[0]?.id ?? "demo";
-      window.localStorage.setItem("sentinel.dashboard.token", data.token);
-      window.localStorage.setItem("sentinel.dashboard.project", projectId);
+      window.localStorage.setItem("heightproof.dashboard.token", data.token);
+      window.localStorage.setItem("heightproof.dashboard.project", projectId);
       currentSessionToken = data.token;
       setSessionToken(data.token);
       setSession({ user: data.user, organization: data.organization, projects: data.projects });
@@ -343,7 +343,7 @@ function App() {
       setOnboardingKey(data.apiKey);
       setNewKeySecret(data.apiKey.key ?? "");
     } catch {
-      setAuthError("Could not reach the Sentinel API. Confirm the API is running and reachable.");
+      setAuthError("Could not reach the Heightproof API. Confirm the API is running and reachable.");
     } finally {
       setAuthSubmitting(false);
     }
@@ -351,7 +351,7 @@ function App() {
 
   async function logoutFromDashboard() {
     const token = sessionToken;
-    window.localStorage.removeItem("sentinel.dashboard.token");
+    window.localStorage.removeItem("heightproof.dashboard.token");
     currentSessionToken = null;
     setSessionToken(null);
     setSession(null);
@@ -421,7 +421,7 @@ function App() {
         await loadRequests();
       } catch {
         if (!demoMode) {
-          setActionError("Could not load project telemetry from the Sentinel API.");
+          setActionError("Could not load project telemetry from the Heightproof API.");
           return;
         }
 
@@ -460,7 +460,7 @@ function App() {
       return;
     }
     if (outcome.kind === "unreachable") {
-      setActionError("Could not reach the Sentinel API.");
+      setActionError("Could not reach the Heightproof API.");
       return;
     }
     if (outcome.kind === "rejected") {
@@ -483,7 +483,7 @@ function App() {
     }
 
     if (outcome.kind === "unreachable" && !demoMode) {
-      setActionError("Could not reach the Sentinel API.");
+      setActionError("Could not reach the Heightproof API.");
       return;
     }
 
@@ -515,7 +515,7 @@ function App() {
       return;
     }
     if (outcome.kind === "unreachable") {
-      setActionError("Could not reach the Sentinel API.");
+      setActionError("Could not reach the Heightproof API.");
       return;
     }
 
@@ -537,7 +537,7 @@ function App() {
       return;
     }
     if (outcome.kind === "unreachable") {
-      setActionError("Could not reach the Sentinel API.");
+      setActionError("Could not reach the Heightproof API.");
       return;
     }
     if (outcome.kind === "rejected") {
@@ -571,7 +571,7 @@ function App() {
       return;
     }
     if (outcome.kind === "unreachable") {
-      setActionError("Could not reach the Sentinel API.");
+      setActionError("Could not reach the Heightproof API.");
       return;
     }
 
@@ -605,7 +605,7 @@ function App() {
       return;
     }
     if (outcome.kind === "unreachable") {
-      setActionError("Could not reach the Sentinel API.");
+      setActionError("Could not reach the Heightproof API.");
       return;
     }
     if (outcome.kind === "rejected") {
@@ -637,7 +637,7 @@ function App() {
       return;
     }
     if (outcome.kind === "unreachable") {
-      setActionError("Could not reach the Sentinel API.");
+      setActionError("Could not reach the Heightproof API.");
       return;
     }
 
@@ -716,7 +716,7 @@ function App() {
         <div className="brand">
           <ShieldCheck size={28} />
           <div>
-            <strong>Sentinel</strong>
+            <strong>Heightproof</strong>
             <span>API Security</span>
           </div>
         </div>
@@ -767,7 +767,7 @@ function App() {
               <select
                 value={selectedProjectId}
                 onChange={(event) => {
-                  window.localStorage.setItem("sentinel.dashboard.project", event.target.value);
+                  window.localStorage.setItem("heightproof.dashboard.project", event.target.value);
                   setSelectedProjectId(event.target.value);
                 }}
               >
@@ -801,7 +801,7 @@ function App() {
         {onboardingKey?.key && (
           <div className="action-success" role="status">
             <KeyRound size={16} />
-            <span>Your first SDK key is ready. Copy it now; Sentinel will not show the secret again.</span>
+            <span>Your first SDK key is ready. Copy it now; Heightproof will not show the secret again.</span>
             <code>{onboardingKey.key}</code>
             <button className="dismiss-button" onClick={() => setOnboardingKey(null)} title="Dismiss">
               Dismiss
@@ -919,7 +919,7 @@ function App() {
                   setRequests(filterDemoRequests(getDemoProjectData(selectedProjectId).requests, requestFilters));
                   return;
                 }
-                setActionError("Could not refresh requests from the Sentinel API.");
+                setActionError("Could not refresh requests from the Heightproof API.");
               })
             }
           />
@@ -996,7 +996,7 @@ function AuthScreen(props: {
     activeForm.password.length > 0 &&
     (!isSignup || (props.signupForm.organizationName.length > 0 && props.signupForm.projectName.length > 0)) &&
     !props.submitting;
-  const title = isSignup ? "Create your Sentinel account" : "Sign in to Sentinel";
+  const title = isSignup ? "Create your Heightproof account" : "Sign in to Heightproof";
   const submitLabel = isSignup ? "Create account" : "Sign in";
 
   return (
@@ -1005,7 +1005,7 @@ function AuthScreen(props: {
         <div className="brand auth-brand">
           <ShieldCheck size={30} />
           <div>
-            <strong>Sentinel</strong>
+            <strong>Heightproof</strong>
             <span>API Security</span>
           </div>
         </div>
@@ -1053,7 +1053,7 @@ function AuthScreen(props: {
                 if (isSignup) props.onSignupChange({ ...props.signupForm, email: event.target.value });
                 else props.onChange({ ...props.form, email: event.target.value });
               }}
-              placeholder="owner@sentinel.local"
+              placeholder="owner@heightproof.local"
             />
           </label>
           <label>
@@ -1673,9 +1673,9 @@ function ApiKeyPanel(props: {
 
         <section className="sdk-snippet">
           <h3>SDK setup</h3>
-          <pre>{`sentinelExpress({
+          <pre>{`heightproofExpress({
   projectId: "${props.selectedProject.id}",
-  apiKey: process.env.SENTINEL_API_KEY,
+  apiKey: process.env.HEIGHTPROOF_API_KEY,
   endpoint: "http://localhost:8080"
 });`}</pre>
         </section>
@@ -1988,8 +1988,8 @@ function createDemoApiKey(name: string): ApiKeyRecord {
   return {
     id: `demo-key-${suffix}`,
     name,
-    prefix: `sentinel_${suffix.slice(0, 8)}`,
-    key: `sentinel_demo_${suffix}`,
+    prefix: `heightproof_${suffix.slice(0, 8)}`,
+    key: `heightproof_demo_${suffix}`,
     created_at: new Date().toISOString(),
     last_used_at: null,
     revoked_at: null
@@ -2190,7 +2190,7 @@ const demoApiKeys: ApiKeyRecord[] = [
   {
     id: "demo-key-primary",
     name: "Production SDK",
-    prefix: "sentinel_prod",
+    prefix: "heightproof_prod",
     created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 4).toISOString(),
     last_used_at: new Date(Date.now() - 1000 * 60 * 11).toISOString(),
     revoked_at: null
@@ -2198,7 +2198,7 @@ const demoApiKeys: ApiKeyRecord[] = [
   {
     id: "demo-key-ci",
     name: "CI Smoke Tests",
-    prefix: "sentinel_ci",
+    prefix: "heightproof_ci",
     created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 18).toISOString(),
     last_used_at: null,
     revoked_at: null
@@ -2209,7 +2209,7 @@ const demoAlertDestinations: AlertDestination[] = [
   {
     id: "demo-alert-soc",
     name: "Security Operations",
-    url: "https://alerts.example.com/sentinel",
+    url: "https://alerts.example.com/heightproof",
     enabled: true,
     created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5).toISOString(),
     updated_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5).toISOString()
@@ -2386,7 +2386,7 @@ const checkoutApiKeys: ApiKeyRecord[] = [
   {
     id: "checkout-key-web",
     name: "Checkout API SDK",
-    prefix: "sentinel_pay",
+    prefix: "heightproof_pay",
     created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 6).toISOString(),
     last_used_at: new Date(Date.now() - 1000 * 60 * 27).toISOString(),
     revoked_at: null

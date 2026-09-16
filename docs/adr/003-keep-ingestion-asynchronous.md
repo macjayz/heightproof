@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-Sentinel runs beside production APIs. Monitoring must not make user applications wait on analytics, threat scoring, or database writes.
+Heightproof runs beside production APIs. Monitoring must not make user applications wait on analytics, threat scoring, or database writes.
 
 ## Decision
 

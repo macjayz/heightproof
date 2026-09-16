@@ -12,22 +12,22 @@ const dbMocks = vi.hoisted(() => ({
 	  createApiKey: vi.fn(() => ({
     id: "key-1",
     name: "Production SDK",
-    prefix: "sentinel_test",
-    key: "sentinel_test_secret",
+    prefix: "heightproof_test",
+    key: "heightproof_test_secret",
     created_at: new Date().toISOString(),
     revoked_at: null,
     last_used_at: null
 	  })),
 	  createWorkspaceOwner: vi.fn(() => ({
 	    kind: "created",
-	    user: { id: "user-3", email: "new@sentinel.local" },
+	    user: { id: "user-3", email: "new@heightproof.local" },
 	    organization: { id: "org-2", name: "New Org" },
 	    project: { id: "new-api-1234abcd", name: "New API", role: "owner" },
 	    apiKey: {
 	      id: "key-2",
 	      name: "Default SDK key",
-	      prefix: "sentinel_new",
-	      key: "sentinel_new_secret",
+	      prefix: "heightproof_new",
+	      key: "heightproof_new_secret",
 	      created_at: new Date().toISOString(),
 	      revoked_at: null,
 	      last_used_at: null
@@ -47,14 +47,14 @@ const dbMocks = vi.hoisted(() => ({
 	  createAlertDestination: vi.fn(() => ({
 	    id: "destination-1",
 	    name: "Security Operations",
-	    url: "https://alerts.example.com/sentinel",
+	    url: "https://alerts.example.com/heightproof",
 	    enabled: true,
 	    created_at: new Date().toISOString()
 	  })),
 	  updateAlertDestination: vi.fn(() => ({
 	    id: "destination-1",
 	    name: "Security Operations",
-	    url: "https://alerts.example.com/sentinel",
+	    url: "https://alerts.example.com/heightproof",
 	    enabled: false,
 	    created_at: new Date().toISOString()
 	  })),
@@ -79,23 +79,23 @@ const dbMocks = vi.hoisted(() => ({
 	  listErrorGroups: vi.fn(() => []),
 	  ensureBootstrapUser: vi.fn(),
 	  getUserByEmail: vi.fn((_pool: unknown, email: string) =>
-	    email === "owner@sentinel.local"
+	    email === "owner@heightproof.local"
 	      ? {
 	          id: "user-1",
-	          email: "owner@sentinel.local",
+	          email: "owner@heightproof.local",
 	          password_hash: "test-hash",
 	          organization_id: "org-1",
 	          organization_name: "Demo Organization"
 	        }
 	      : null
 	  ),
-	  createSession: vi.fn(() => ({ token: "sentinel_session_owner", expiresAt: new Date().toISOString() })),
+	  createSession: vi.fn(() => ({ token: "heightproof_session_owner", expiresAt: new Date().toISOString() })),
 	  resolveSession: vi.fn((_pool: unknown, token?: string) => {
-	    if (token === "sentinel_session_owner") {
-	      return { userId: "user-1", email: "owner@sentinel.local", organizationId: "org-1", organizationName: "Demo Organization" };
+	    if (token === "heightproof_session_owner") {
+	      return { userId: "user-1", email: "owner@heightproof.local", organizationId: "org-1", organizationName: "Demo Organization" };
 	    }
-	    if (token === "sentinel_session_viewer") {
-	      return { userId: "user-2", email: "viewer@sentinel.local", organizationId: "org-1", organizationName: "Demo Organization" };
+	    if (token === "heightproof_session_viewer") {
+	      return { userId: "user-2", email: "viewer@heightproof.local", organizationId: "org-1", organizationName: "Demo Organization" };
 	    }
 	    return null;
 	  }),
@@ -137,7 +137,7 @@ const dbMocks = vi.hoisted(() => ({
 	    _fallback: string,
 	    requestedProjectId?: string,
 	    allowFallbackApiKey?: boolean
-	  ) => (apiKey === "dev-sentinel-key" && allowFallbackApiKey ? { projectId: requestedProjectId ?? "demo", keyId: "test" } : null),
+	  ) => (apiKey === "dev-heightproof-key" && allowFallbackApiKey ? { projectId: requestedProjectId ?? "demo", keyId: "test" } : null),
 	  resolveSession: dbMocks.resolveSession,
 	  updateAlertDestination: dbMocks.updateAlertDestination,
 	  updateAlertRule: dbMocks.updateAlertRule,
@@ -183,7 +183,7 @@ describe("api server", () => {
     const response = await app.inject({
       method: "POST",
       url: "/v1/events",
-      headers: { "x-sentinel-api-key": "dev-sentinel-key" },
+      headers: { "x-heightproof-api-key": "dev-heightproof-key" },
       payload: {
         events: [
           {
@@ -244,7 +244,7 @@ describe("api server", () => {
     const response = await app.inject({
       method: "GET",
       url: "/v1/analytics/requests?kind=evm_rpc&limit=10",
-      headers: { authorization: "Bearer sentinel_session_owner" }
+      headers: { authorization: "Bearer heightproof_session_owner" }
     });
 
     expect(response.statusCode).toBe(200);
@@ -260,7 +260,7 @@ describe("api server", () => {
     const response = await app.inject({
       method: "GET",
       url: "/v1/analytics/overview?projectId=demo",
-      headers: { authorization: "Bearer sentinel_session_owner" }
+      headers: { authorization: "Bearer heightproof_session_owner" }
     });
 
     expect(response.statusCode).toBe(200);
@@ -273,7 +273,7 @@ describe("api server", () => {
     const response = await app.inject({
       method: "GET",
       url: "/v1/analytics/overview",
-      headers: { authorization: "Bearer sentinel_session_owner" }
+      headers: { authorization: "Bearer heightproof_session_owner" }
     });
 
     expect(response.statusCode).toBe(200);
@@ -286,7 +286,7 @@ describe("api server", () => {
     const response = await app.inject({
       method: "GET",
       url: "/v1/analytics/overview",
-      headers: { "x-sentinel-api-key": "invalid" }
+      headers: { "x-heightproof-api-key": "invalid" }
     });
 
     expect(response.statusCode).toBe(401);
@@ -298,7 +298,7 @@ describe("api server", () => {
     const response = await app.inject({
       method: "GET",
       url: "/v1/analytics/overview?projectId=other",
-      headers: { authorization: "Bearer sentinel_session_owner" }
+      headers: { authorization: "Bearer heightproof_session_owner" }
     });
 
     expect(response.statusCode).toBe(403);
@@ -313,7 +313,7 @@ describe("api server", () => {
       method: "POST",
       url: "/v1/auth/signup",
       payload: {
-        email: "New@Sentinel.local",
+        email: "New@Heightproof.local",
         password: "correct-password",
         organizationName: "New Org",
         projectName: "New API"
@@ -322,13 +322,13 @@ describe("api server", () => {
 
     expect(response.statusCode).toBe(201);
     expect(dbMocks.createWorkspaceOwner).toHaveBeenCalledWith(expect.anything(), {
-      email: "new@sentinel.local",
+      email: "new@heightproof.local",
       password: "correct-password",
       organizationName: "New Org",
       projectName: "New API"
     });
     expect(response.json().projects).toEqual([{ id: "new-api-1234abcd", name: "New API", role: "owner" }]);
-    expect(response.json().apiKey.key).toBe("sentinel_new_secret");
+    expect(response.json().apiKey.key).toBe("heightproof_new_secret");
     await app.close();
   });
 
@@ -337,12 +337,12 @@ describe("api server", () => {
     const response = await app.inject({
       method: "POST",
       url: "/v1/api-keys",
-      headers: { authorization: "Bearer sentinel_session_owner" },
+      headers: { authorization: "Bearer heightproof_session_owner" },
       payload: { name: "Production SDK" }
     });
 
     expect(response.statusCode).toBe(201);
-    expect(response.json().key).toBe("sentinel_test_secret");
+    expect(response.json().key).toBe("heightproof_test_secret");
     expect(dbMocks.createApiKey).toHaveBeenCalledWith(expect.anything(), "demo", "Production SDK");
     await app.close();
   });
@@ -352,7 +352,7 @@ describe("api server", () => {
     const response = await app.inject({
       method: "DELETE",
       url: "/v1/api-keys/key-1",
-      headers: { authorization: "Bearer sentinel_session_owner" }
+      headers: { authorization: "Bearer heightproof_session_owner" }
     });
 
     expect(response.statusCode).toBe(204);
@@ -365,7 +365,7 @@ describe("api server", () => {
 	    const response = await app.inject({
 	      method: "PATCH",
 	      url: "/v1/incidents/incident-1/status",
-	      headers: { authorization: "Bearer sentinel_session_owner" },
+	      headers: { authorization: "Bearer heightproof_session_owner" },
 	      payload: { status: "acknowledged" }
 	    });
 
@@ -386,8 +386,8 @@ describe("api server", () => {
 	    const response = await app.inject({
 	      method: "POST",
 	      url: "/v1/alert-destinations",
-	      headers: { authorization: "Bearer sentinel_session_owner" },
-	      payload: { name: "Security Operations", url: "https://alerts.example.com/sentinel" }
+	      headers: { authorization: "Bearer heightproof_session_owner" },
+	      payload: { name: "Security Operations", url: "https://alerts.example.com/heightproof" }
 	    });
 
 	    expect(response.statusCode).toBe(201);
@@ -395,7 +395,7 @@ describe("api server", () => {
 	      expect.anything(),
 	      "demo",
 	      "Security Operations",
-	      "https://alerts.example.com/sentinel"
+	      "https://alerts.example.com/heightproof"
 	    );
 	    await app.close();
 	  });
@@ -405,7 +405,7 @@ describe("api server", () => {
 	    const response = await app.inject({
 	      method: "PATCH",
 	      url: "/v1/alert-destinations/destination-1",
-	      headers: { authorization: "Bearer sentinel_session_owner" },
+	      headers: { authorization: "Bearer heightproof_session_owner" },
 	      payload: { enabled: false }
 	    });
 
@@ -424,7 +424,7 @@ describe("api server", () => {
 	    const response = await app.inject({
 	      method: "POST",
 	      url: "/v1/alert-rules",
-	      headers: { authorization: "Bearer sentinel_session_owner" },
+	      headers: { authorization: "Bearer heightproof_session_owner" },
 	      payload: { metric: "error_rate_percent", threshold: 5, windowMinutes: 5 }
 	    });
 
@@ -438,7 +438,7 @@ describe("api server", () => {
 	    const response = await app.inject({
 	      method: "POST",
 	      url: "/v1/alert-rules",
-	      headers: { authorization: "Bearer sentinel_session_owner" },
+	      headers: { authorization: "Bearer heightproof_session_owner" },
 	      payload: { metric: "not_a_real_metric", threshold: 5, windowMinutes: 5 }
 	    });
 
@@ -451,7 +451,7 @@ describe("api server", () => {
 	    const response = await app.inject({
 	      method: "PATCH",
 	      url: "/v1/alert-rules/rule-1",
-	      headers: { authorization: "Bearer sentinel_session_owner" },
+	      headers: { authorization: "Bearer heightproof_session_owner" },
 	      payload: { enabled: false }
 	    });
 
@@ -465,7 +465,7 @@ describe("api server", () => {
 	    const response = await app.inject({
 	      method: "PATCH",
 	      url: "/v1/alert-rules/rule-1",
-	      headers: { authorization: "Bearer sentinel_session_owner" },
+	      headers: { authorization: "Bearer heightproof_session_owner" },
 	      payload: {}
 	    });
 
@@ -478,7 +478,7 @@ describe("api server", () => {
 	    const response = await app.inject({
 	      method: "GET",
 	      url: "/v1/errors",
-	      headers: { authorization: "Bearer sentinel_session_owner" }
+	      headers: { authorization: "Bearer heightproof_session_owner" }
 	    });
 
 	    expect(response.statusCode).toBe(200);
@@ -491,12 +491,12 @@ describe("api server", () => {
 	    const response = await app.inject({
 	      method: "POST",
 	      url: "/v1/auth/login",
-	      payload: { email: "owner@sentinel.local", password: "correct-password" }
+	      payload: { email: "owner@heightproof.local", password: "correct-password" }
 	    });
 
 	    expect(response.statusCode).toBe(200);
 	    const body = response.json();
-	    expect(body.token).toBe("sentinel_session_owner");
+	    expect(body.token).toBe("heightproof_session_owner");
 	    expect(body.projects).toEqual([{ id: "demo", name: "Demo Project", role: "owner" }]);
 	    await app.close();
 	  });
@@ -506,7 +506,7 @@ describe("api server", () => {
 	    const response = await app.inject({
 	      method: "POST",
 	      url: "/v1/auth/login",
-	      payload: { email: "owner@sentinel.local", password: "wrong-password" }
+	      payload: { email: "owner@heightproof.local", password: "wrong-password" }
 	    });
 
 	    expect(response.statusCode).toBe(401);
@@ -518,7 +518,7 @@ describe("api server", () => {
 	    const response = await app.inject({
 	      method: "POST",
 	      url: "/v1/auth/login",
-	      payload: { email: "nobody@sentinel.local", password: "correct-password" }
+	      payload: { email: "nobody@heightproof.local", password: "correct-password" }
 	    });
 
 	    expect(response.statusCode).toBe(401);
@@ -530,11 +530,11 @@ describe("api server", () => {
 	    const response = await app.inject({
 	      method: "GET",
 	      url: "/v1/auth/session",
-	      headers: { authorization: "Bearer sentinel_session_owner" }
+	      headers: { authorization: "Bearer heightproof_session_owner" }
 	    });
 
 	    expect(response.statusCode).toBe(200);
-	    expect(response.json().user.email).toBe("owner@sentinel.local");
+	    expect(response.json().user.email).toBe("owner@heightproof.local");
 	    await app.close();
 	  });
 
@@ -555,11 +555,11 @@ describe("api server", () => {
 	    const response = await app.inject({
 	      method: "POST",
 	      url: "/v1/auth/logout",
-	      headers: { authorization: "Bearer sentinel_session_owner" }
+	      headers: { authorization: "Bearer heightproof_session_owner" }
 	    });
 
 	    expect(response.statusCode).toBe(204);
-	    expect(dbMocks.deleteSession).toHaveBeenCalledWith(expect.anything(), "sentinel_session_owner");
+	    expect(dbMocks.deleteSession).toHaveBeenCalledWith(expect.anything(), "heightproof_session_owner");
 	    await app.close();
 	  });
 
@@ -568,7 +568,7 @@ describe("api server", () => {
 	    const response = await app.inject({
 	      method: "POST",
 	      url: "/v1/api-keys",
-	      headers: { authorization: "Bearer sentinel_session_owner" },
+	      headers: { authorization: "Bearer heightproof_session_owner" },
 	      payload: { name: "Production SDK" }
 	    });
 
@@ -581,7 +581,7 @@ describe("api server", () => {
 	    const response = await app.inject({
 	      method: "POST",
 	      url: "/v1/api-keys",
-	      headers: { authorization: "Bearer sentinel_session_viewer" },
+	      headers: { authorization: "Bearer heightproof_session_viewer" },
 	      payload: { name: "Production SDK" }
 	    });
 

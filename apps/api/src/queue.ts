@@ -1,17 +1,17 @@
 import { Redis } from "ioredis";
-import { SentinelEvent, withSpan } from "@sentinel/shared";
+import { HeightproofEvent, withSpan } from "@heightproof/shared";
 import { ApiConfig } from "./config.js";
 
 export function createRedis(config: ApiConfig) {
   return new Redis(config.redisUrl, { maxRetriesPerRequest: null });
 }
 
-export async function enqueueEvents(redis: Redis, streamName: string, events: SentinelEvent[]) {
+export async function enqueueEvents(redis: Redis, streamName: string, events: HeightproofEvent[]) {
   return withSpan(
-    "sentinel.redis.enqueue_events",
+    "heightproof.redis.enqueue_events",
     {
-      "sentinel.stream": streamName,
-      "sentinel.events.count": events.length
+      "heightproof.stream": streamName,
+      "heightproof.events.count": events.length
     },
     async () => {
       const pipeline = redis.pipeline();

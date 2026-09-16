@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Suggest a focused Sentinel capability
+about: Suggest a focused Heightproof capability
 title: "feat: "
 labels: enhancement
 assignees: ""

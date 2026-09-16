@@ -1,5 +1,5 @@
 import { chainBlockTimeMs } from "./rpc.js";
-import type { SentinelEvent, ThreatSignal } from "./index.js";
+import type { HeightproofEvent, ThreatSignal } from "./index.js";
 
 /**
  * Content-aware RPC detectors D1, D3 and D6 (see docs/detectors.md).
@@ -91,7 +91,7 @@ const LOG_METHODS = new Set(["eth_getLogs", "eth_getFilterLogs"]);
  * still answering, and a head that trails the fastest endpoint on the same chain.
  */
 export function detectStaleHead(
-  event: SentinelEvent,
+  event: HeightproofEvent,
   context: StaleHeadContext = {},
   thresholds: DetectorThresholds = DEFAULT_DETECTOR_THRESHOLDS
 ): ThreatSignal[] {
@@ -145,7 +145,7 @@ export function detectStaleHead(
  * explicit in-body error is comparative, because emptiness on its own is usually correct.
  */
 export function detectSilentFailure(
-  event: SentinelEvent,
+  event: HeightproofEvent,
   context: SilentFailureContext = {},
   thresholds: DetectorThresholds = DEFAULT_DETECTOR_THRESHOLDS
 ): ThreatSignal[] {
@@ -207,7 +207,7 @@ export function detectSilentFailure(
  * recorded against the event and aggregated for reporting without inflating a threat score
  * or manufacturing an incident.
  */
-export function detectCostWaste(event: SentinelEvent, context: CostWasteContext = {}): ThreatSignal[] {
+export function detectCostWaste(event: HeightproofEvent, context: CostWasteContext = {}): ThreatSignal[] {
   if (event.kind !== "evm_rpc" || !event.evmRpc) return [];
 
   // Only provable at a pinned height. Two identical calls either side of a block boundary
@@ -273,7 +273,7 @@ const DISAGREEMENT_LOG_METHODS = new Set(["eth_getLogs", "eth_getFilterLogs"]);
  * and D1 is what reports it.
  */
 export function detectDisagreement(
-  event: SentinelEvent,
+  event: HeightproofEvent,
   context: DisagreementContext = {}
 ): ThreatSignal[] {
   if (event.kind !== "evm_rpc" || !event.evmRpc) return [];
@@ -318,7 +318,7 @@ export function detectDisagreement(
  * whether this endpoint is still serving a chain its peers have already abandoned.
  */
 export function detectReorgLag(
-  event: SentinelEvent,
+  event: HeightproofEvent,
   context: ReorgContext = {},
   thresholds: DetectorThresholds = DEFAULT_DETECTOR_THRESHOLDS
 ): ThreatSignal[] {
@@ -386,7 +386,7 @@ export type ThrottlingContext = {
  * as well would just restate it under a second name.
  */
 export function detectThrottling(
-  event: SentinelEvent,
+  event: HeightproofEvent,
   context: ThrottlingContext = {},
   thresholds: DetectorThresholds = DEFAULT_DETECTOR_THRESHOLDS
 ): ThreatSignal[] {

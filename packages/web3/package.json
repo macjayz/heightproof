@@ -1,5 +1,5 @@
 {
-  "name": "@sentinel/web3",
+  "name": "@heightproof/web3",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
@@ -9,8 +9,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@sentinel/sdk-node": "0.1.0",
-    "@sentinel/shared": "0.1.0"
+    "@heightproof/sdk-node": "0.1.0",
+    "@heightproof/shared": "0.1.0"
   },
   "peerDependencies": {
     "viem": ">=2"

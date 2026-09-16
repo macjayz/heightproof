@@ -10,7 +10,7 @@ API observability tools can accidentally collect secrets, credentials, tokens, a
 
 ## Decision
 
-Sentinel redacts common sensitive headers and payload fields by default. Users can add custom redaction fields.
+Heightproof redacts common sensitive headers and payload fields by default. Users can add custom redaction fields.
 
 ## Consequences
 

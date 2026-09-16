@@ -1,5 +1,5 @@
 {
-  "name": "@sentinel/sdk-node",
+  "name": "@heightproof/sdk-node",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
@@ -9,7 +9,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@sentinel/shared": "0.1.0"
+    "@heightproof/shared": "0.1.0"
   },
   "peerDependencies": {
     "express": ">=4"

@@ -1,6 +1,6 @@
 # Code of Conduct
 
-Sentinel is intended to be a professional, security-focused open-source project.
+Heightproof is intended to be a professional, security-focused open-source project.
 
 ## Standards
 

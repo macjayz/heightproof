@@ -1,5 +1,5 @@
 {
-  "name": "@sentinel/example-web3-rpc",
+  "name": "@heightproof/example-web3-rpc",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -7,7 +7,7 @@
     "dev": "tsx client.ts"
   },
   "dependencies": {
-    "@sentinel/web3": "0.1.0",
+    "@heightproof/web3": "0.1.0",
     "tsx": "^4.19.0"
   }
 }

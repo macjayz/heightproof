@@ -3,7 +3,7 @@
 Every detector here attacks one assumption: **that an RPC call returning `200 OK` returned the
 truth.**
 
-Sentinel's current recorder branches only on whether the provider call threw. A provider that
+Heightproof's current recorder branches only on whether the provider call threw. A provider that
 answers instantly, from a node 40 blocks behind, with `result: null`, is recorded as a healthy
 200 with excellent latency. D1–D6 close that gap.
 
@@ -18,7 +18,7 @@ what it costs to run. Detectors marked **Shipping** exist in `packages/shared/sr
 D1–D6 all depend on data the SDK does not currently collect. `RpcRecorder.capture()` records the
 request and a synthesized status code; it discards the result entirely.
 
-Phase 1 extends the `evmRpc` block of `SentinelEvent` with:
+Phase 1 extends the `evmRpc` block of `HeightproofEvent` with:
 
 | Field | Purpose | Notes |
 |---|---|---|
@@ -35,11 +35,11 @@ Phase 1 extends the `evmRpc` block of `SentinelEvent` with:
 
 **Why hash the result instead of storing it.** Raw results are large, sometimes contain user
 balances and addresses, and are useless for comparison in raw form. A normalized hash answers "did
-these two providers agree" without Sentinel becoming a database of chain state. Normalization must
+these two providers agree" without Heightproof becoming a database of chain state. Normalization must
 sort object keys, lowercase hex, and strip leading-zero variance before hashing, or providers will
 appear to disagree over formatting.
 
-**Why hash the endpoint.** `https://eth-mainnet.g.alchemy.com/v2/<KEY>` is a credential. Sentinel
+**Why hash the endpoint.** `https://eth-mainnet.g.alchemy.com/v2/<KEY>` is a credential. Heightproof
 must be able to distinguish two endpoints of the same provider without ever persisting one.
 
 ---
@@ -56,7 +56,7 @@ tracked per `endpointHash`.
 
 **Fires when either:**
 - The provider's observed head has not advanced for more than `staleMultiplier × chainBlockTime`
-  (default `3×`; 36s on mainnet, 6s on an L2 with 2s blocks), while Sentinel is still receiving
+  (default `3×`; 36s on mainnet, 6s on an L2 with 2s blocks), while Heightproof is still receiving
   successful responses from it, **or**
 - The provider's head is behind the maximum head observed across all endpoints for that chain by
   more than `maxHeadLagBlocks` (default 3 on mainnet).

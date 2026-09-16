@@ -1,6 +1,6 @@
 import { WebSocketServer, WebSocket } from "ws";
 import type { Server } from "node:http";
-import { withSpan } from "@sentinel/shared";
+import { withSpan } from "@heightproof/shared";
 
 export type LiveAuthenticator = (token: string | undefined, projectId: string | undefined) => Promise<boolean>;
 
@@ -40,10 +40,10 @@ export function attachLiveServer(server: Server, authenticate?: LiveAuthenticato
     },
     publishToProject(channel: string, payload: unknown, projectId?: string) {
       void withSpan(
-        "sentinel.websocket.publish",
+        "heightproof.websocket.publish",
         {
-          "sentinel.websocket.channel": channel,
-          "sentinel.websocket.clients": clients.size
+          "heightproof.websocket.channel": channel,
+          "heightproof.websocket.clients": clients.size
         },
         async () => {
           const message = JSON.stringify({ channel, payload });

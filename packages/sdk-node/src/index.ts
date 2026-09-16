@@ -7,10 +7,10 @@ import {
   RedactionConfig,
   redactHeaders,
   redactValue,
-  SentinelEvent
-} from "@sentinel/shared";
+  HeightproofEvent
+} from "@heightproof/shared";
 
-export type SentinelMiddlewareOptions = {
+export type HeightproofMiddlewareOptions = {
   projectId: string;
   apiKey: string;
   endpoint: string;
@@ -21,19 +21,19 @@ export type SentinelMiddlewareOptions = {
   maxBatchSize?: number;
 };
 
-type RequestWithCapturedError = Request & { sentinelError?: unknown };
+type RequestWithCapturedError = Request & { heightproofError?: unknown };
 
-export function sentinelErrorHandler() {
-  return function sentinelErrorMiddleware(err: unknown, req: Request, _res: Response, next: NextFunction) {
-    (req as RequestWithCapturedError).sentinelError = err;
+export function heightproofErrorHandler() {
+  return function heightproofErrorMiddleware(err: unknown, req: Request, _res: Response, next: NextFunction) {
+    (req as RequestWithCapturedError).heightproofError = err;
     next(err);
   };
 }
 
-export function sentinelExpress(options: SentinelMiddlewareOptions) {
-  const client = new SentinelClient(options);
+export function heightproofExpress(options: HeightproofMiddlewareOptions) {
+  const client = new HeightproofClient(options);
 
-  return function sentinelMiddleware(req: Request, res: Response, next: NextFunction) {
+  return function heightproofMiddleware(req: Request, res: Response, next: NextFunction) {
     const started = performance.now();
     const chunks: Buffer[] = [];
     const originalWrite = res.write.bind(res);
@@ -56,7 +56,7 @@ export function sentinelExpress(options: SentinelMiddlewareOptions) {
       const authHeader = headers.authorization;
       const route = req.route?.path ? String(req.route.path) : normalizeRoutePath(req.path);
       const traceId = getTraceId(req);
-      const event: SentinelEvent = {
+      const event: HeightproofEvent = {
         id: randomUUID(),
         traceId,
         projectId: options.projectId,
@@ -65,7 +65,7 @@ export function sentinelExpress(options: SentinelMiddlewareOptions) {
         timestamp: new Date().toISOString(),
         kind,
         request: {
-          method: req.method as SentinelEvent["request"]["method"],
+          method: req.method as HeightproofEvent["request"]["method"],
           path: req.path,
           route,
           ip: req.ip,
@@ -97,7 +97,7 @@ export function sentinelExpress(options: SentinelMiddlewareOptions) {
         event.evmRpc = { method: body.method, chainId: headers["x-chain-id"] };
       }
 
-      const capturedError = (req as RequestWithCapturedError).sentinelError;
+      const capturedError = (req as RequestWithCapturedError).heightproofError;
       if (capturedError instanceof Error) {
         event.error = {
           type: capturedError.name || "Error",
@@ -116,21 +116,21 @@ export function sentinelExpress(options: SentinelMiddlewareOptions) {
 }
 
 function getTraceId(req: Request) {
-  const existing = req.headers["x-sentinel-trace-id"];
+  const existing = req.headers["x-heightproof-trace-id"];
   if (typeof existing === "string" && /^[0-9a-f]{32}$/i.test(existing)) return existing;
   return randomBytes(16).toString("hex");
 }
 
-export class SentinelClient {
-  private queue: SentinelEvent[] = [];
+export class HeightproofClient {
+  private queue: HeightproofEvent[] = [];
   private timer?: NodeJS.Timeout;
 
-  constructor(private readonly options: SentinelMiddlewareOptions) {
+  constructor(private readonly options: HeightproofMiddlewareOptions) {
     this.timer = setInterval(() => void this.flush(), options.flushIntervalMs ?? 5000);
     this.timer.unref?.();
   }
 
-  capture(event: SentinelEvent): void {
+  capture(event: HeightproofEvent): void {
     this.queue.push(event);
     if (this.queue.length >= (this.options.maxBatchSize ?? 25)) {
       void this.flush();
@@ -147,7 +147,7 @@ export class SentinelClient {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x-sentinel-api-key": this.options.apiKey
+          "x-heightproof-api-key": this.options.apiKey
         },
         body: JSON.stringify(payload)
       });

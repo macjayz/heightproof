@@ -1,6 +1,6 @@
 import pg from "pg";
 import type { Redis } from "ioredis";
-import { buildDemoEvents } from "@sentinel/shared";
+import { buildDemoEvents } from "@heightproof/shared";
 import { enqueueEvents } from "./queue.js";
 
 // Fixes the "docker compose up gives you an empty dashboard" problem for anyone without Node.js

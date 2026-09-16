@@ -68,7 +68,7 @@ export const HttpMethodSchema = z.enum([
 
 export const TrafficKindSchema = z.enum(["rest", "graphql", "evm_rpc", "websocket", "webhook"]);
 
-export const SentinelEventSchema = z.object({
+export const HeightproofEventSchema = z.object({
   id: z.string().min(8),
   traceId: z.string().regex(/^[0-9a-f]{32}$/i).optional(),
   parentSpanId: z.string().regex(/^[0-9a-f]{16}$/i).optional(),
@@ -142,10 +142,10 @@ export const SentinelEventSchema = z.object({
 });
 
 export const EventBatchSchema = z.object({
-  events: z.array(SentinelEventSchema).min(1).max(100)
+  events: z.array(HeightproofEventSchema).min(1).max(100)
 });
 
-export type SentinelEvent = z.infer<typeof SentinelEventSchema>;
+export type HeightproofEvent = z.infer<typeof HeightproofEventSchema>;
 export type EventBatch = z.infer<typeof EventBatchSchema>;
 export type TrafficKind = z.infer<typeof TrafficKindSchema>;
 
@@ -167,7 +167,7 @@ const defaultSensitiveFields = [
   "refreshToken",
   "apiKey",
   "xApiKey",
-  "xSentinelApiKey",
+  "xHeightproofApiKey",
   "privateKey",
   "mnemonic"
 ];
@@ -273,7 +273,7 @@ export async function withSpan<T>(
   attributes: TraceAttributes,
   operation: () => Promise<T>
 ): Promise<T> {
-  const tracer = trace.getTracer("sentinel");
+  const tracer = trace.getTracer("heightproof");
   const span = tracer.startSpan(name);
 
   for (const [key, value] of Object.entries(attributes)) {
@@ -297,7 +297,7 @@ export async function withSpan<T>(
 }
 
 export function assessThreat(
-  event: SentinelEvent,
+  event: HeightproofEvent,
   recentIpRequestCount = 0,
   web3Context: Web3ThreatContext = {}
 ): ThreatAssessment {

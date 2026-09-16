@@ -1,5 +1,5 @@
 import pg from "pg";
-import { withSpan } from "@sentinel/shared";
+import { withSpan } from "@heightproof/shared";
 import {
   AlertDeliveryDetails,
   claimAlertDeliveries,
@@ -14,10 +14,10 @@ export async function deliverPendingAlerts(pool: pg.Pool, limit = 10) {
 
   for (const delivery of deliveries) {
     await withSpan(
-      "sentinel.worker.deliver_alert",
+      "heightproof.worker.deliver_alert",
       {
-        "sentinel.delivery_id": delivery.id,
-        "sentinel.incident_id": delivery.incident_id
+        "heightproof.delivery_id": delivery.id,
+        "heightproof.incident_id": delivery.incident_id
       },
       async () => {
         try {

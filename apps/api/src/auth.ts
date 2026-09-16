@@ -25,7 +25,7 @@ export function hashToken(token: string): string {
 }
 
 export function generateSessionToken(): string {
-  return `sentinel_session_${randomBytes(32).toString("base64url")}`;
+  return `heightproof_session_${randomBytes(32).toString("base64url")}`;
 }
 
 const ROLE_RANK: Record<string, number> = { viewer: 0, developer: 1, admin: 2, owner: 3 };

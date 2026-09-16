@@ -4,7 +4,7 @@ import { deliverPendingAlerts } from "./alerts.js";
 const deliveryRow = {
   id: "delivery-1",
   attempts: 0,
-  destination_url: "https://alerts.example.com/sentinel",
+  destination_url: "https://alerts.example.com/heightproof",
   destination_name: "Security Operations",
   incident_id: "incident-1",
   title: "Potential credential stuffing on POST /login",

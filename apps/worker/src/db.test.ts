@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { SentinelEvent, ThreatAssessment } from "@sentinel/shared";
+import { HeightproofEvent, ThreatAssessment } from "@heightproof/shared";
 import type { AlertRule } from "./alertRules.js";
 import {
   createIncidentIfNeeded,
@@ -16,7 +16,7 @@ import {
   raiseAlertRuleIncident
 } from "./db.js";
 
-const event: SentinelEvent = {
+const event: HeightproofEvent = {
   id: "event-jsonb-1",
   traceId: "0123456789abcdef0123456789abcdef",
   projectId: "demo",
@@ -32,7 +32,7 @@ const event: SentinelEvent = {
     userAgent: "vitest",
     headers: { authorization: "[REDACTED]" },
     query: { source: "test" },
-    body: { email: "owner@sentinel.local" },
+    body: { email: "owner@heightproof.local" },
     auth: { present: true, failed: true }
   },
   response: {
@@ -67,17 +67,17 @@ describe("worker database persistence", () => {
   it("redacts sensitive request data before storage", async () => {
     const query = vi.fn().mockResolvedValue({ rows: [], rowCount: 1 });
     const pool = { query };
-    const sensitiveEvent: SentinelEvent = {
+    const sensitiveEvent: HeightproofEvent = {
       ...event,
       request: {
         ...event.request,
         headers: {
           authorization: "Bearer secret",
-          "x-api-key": "sentinel_secret",
+          "x-api-key": "heightproof_secret",
           "x-request-id": "request-1"
         },
         body: {
-          email: "owner@sentinel.local",
+          email: "owner@heightproof.local",
           password: "secret-password",
           nested: { token: "secret-token" }
         }
@@ -93,7 +93,7 @@ describe("worker database persistence", () => {
       "x-request-id": "request-1"
     });
     expect(JSON.parse(params[15] as string)).toEqual({
-      email: "owner@sentinel.local",
+      email: "owner@heightproof.local",
       password: "[REDACTED]",
       nested: { token: "[REDACTED]" }
     });
@@ -102,7 +102,7 @@ describe("worker database persistence", () => {
   it("persists captured error details when present", async () => {
     const query = vi.fn().mockResolvedValue({ rows: [], rowCount: 1 });
     const pool = { query };
-    const eventWithError: SentinelEvent = {
+    const eventWithError: HeightproofEvent = {
       ...event,
       error: { type: "TypeError", message: "Cannot read property 'email' of undefined", stack: "TypeError: ..." }
     };
@@ -118,7 +118,7 @@ describe("worker database persistence", () => {
   it("persists captured rpc result metadata", async () => {
     const query = vi.fn().mockResolvedValue({ rows: [], rowCount: 1 });
     const pool = { query };
-    const rpcEvent: SentinelEvent = {
+    const rpcEvent: HeightproofEvent = {
       ...event,
       kind: "evm_rpc",
       evmRpc: {
@@ -242,7 +242,7 @@ describe("web3 threat context", () => {
       .mockResolvedValue({ rows: [] });
     const pool = { query };
 
-    const rpcEvent: SentinelEvent = {
+    const rpcEvent: HeightproofEvent = {
       ...event,
       kind: "evm_rpc",
       evmRpc: { method: "eth_sendRawTransaction", walletAddress: "0xabc", provider: "alchemy" }
@@ -361,11 +361,11 @@ describe("stale head context", () => {
 });
 
 describe("silent failure context", () => {
-  const rpcEventWith = (evmRpc: Record<string, unknown>, params: unknown[] = ["0xdead"]): SentinelEvent => ({
+  const rpcEventWith = (evmRpc: Record<string, unknown>, params: unknown[] = ["0xdead"]): HeightproofEvent => ({
     ...event,
     kind: "evm_rpc",
     request: { ...event.request, body: { jsonrpc: "2.0", method: "eth_getTransactionReceipt", params } },
-    evmRpc: { method: "eth_getTransactionReceipt", ...evmRpc } as SentinelEvent["evmRpc"]
+    evmRpc: { method: "eth_getTransactionReceipt", ...evmRpc } as HeightproofEvent["evmRpc"]
   });
 
   it("only looks for a prior success when the result actually came back null", async () => {
@@ -406,7 +406,7 @@ describe("silent failure context", () => {
 describe("cost waste context", () => {
   it("does not query for calls that were never pinned to a block", async () => {
     const poolMock = { query: vi.fn() };
-    const rpcEvent: SentinelEvent = {
+    const rpcEvent: HeightproofEvent = {
       ...event,
       kind: "evm_rpc",
       evmRpc: { method: "eth_call" }
@@ -418,7 +418,7 @@ describe("cost waste context", () => {
 
   it("counts identical calls at the same height and what they cost", async () => {
     const query = vi.fn().mockResolvedValue({ rows: [{ duplicates: 4, cost_units: 104 }] });
-    const rpcEvent: SentinelEvent = {
+    const rpcEvent: HeightproofEvent = {
       ...event,
       kind: "evm_rpc",
       request: {
@@ -435,7 +435,7 @@ describe("cost waste context", () => {
 });
 
 describe("disagreement context", () => {
-  const shadowEvent = (evmRpc: Record<string, unknown>): SentinelEvent => ({
+  const shadowEvent = (evmRpc: Record<string, unknown>): HeightproofEvent => ({
     ...event,
     id: "shadow-1",
     kind: "evm_rpc",
@@ -445,12 +445,12 @@ describe("disagreement context", () => {
       resultHash: "aaaa",
       shadowOfTraceId: "trace-1",
       ...evmRpc
-    } as SentinelEvent["evmRpc"]
+    } as HeightproofEvent["evmRpc"]
   });
 
   it("ignores events that are not verification observations", async () => {
     const poolMock = { query: vi.fn() };
-    const plain: SentinelEvent = {
+    const plain: HeightproofEvent = {
       ...event,
       kind: "evm_rpc",
       evmRpc: { method: "eth_call", blockNumber: "1000", resultHash: "aaaa" }
@@ -497,7 +497,7 @@ describe("reorg context", () => {
   const hashA = `0x${"a".repeat(64)}`;
   const hashB = `0x${"b".repeat(64)}`;
 
-  const blockEvent = (evmRpc: Record<string, unknown> = {}): SentinelEvent => ({
+  const blockEvent = (evmRpc: Record<string, unknown> = {}): HeightproofEvent => ({
     ...event,
     kind: "evm_rpc",
     evmRpc: {
@@ -507,7 +507,7 @@ describe("reorg context", () => {
       blockHash: hashA,
       endpointHash: "e1",
       ...evmRpc
-    } as SentinelEvent["evmRpc"]
+    } as HeightproofEvent["evmRpc"]
   });
 
   it("says nothing without a block hash to compare", async () => {

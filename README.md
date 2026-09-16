@@ -1,11 +1,11 @@
-# Sentinel
+# Heightproof
 
-**Sentinel catches the EVM RPC failures that return `200 OK`.**
+**Heightproof catches the EVM RPC failures that return `200 OK`.**
 
 Cross-provider verification, stale-head detection, silent-failure detection, and cost accounting for
 Ethereum JSON-RPC traffic. Self-hosted, MIT licensed.
 
-![Sentinel RPC activity](assets/screenshots/rpc-activity.png)
+![Heightproof RPC activity](assets/screenshots/rpc-activity.png)
 
 ## The problem
 
@@ -21,32 +21,32 @@ Generic synthetic monitors can validate a response body when you write an assert
 answer, but most chain state has no fixed expected value. Detecting a wrong answer requires RPC-aware
 checks and, for many methods, an independent provider answering the same question at the same block.
 
-Sentinel captures those observations from real application traffic, samples deterministic reads,
+Heightproof captures those observations from real application traffic, samples deterministic reads,
 pins verification calls to a concrete block height, and compares normalized result hashes without
 storing raw chain state.
 
-## How Sentinel is different
+## How Heightproof is different
 
-Sentinel is an **independent, self-hosted forensic observability layer**, not another RPC gateway.
+Heightproof is an **independent, self-hosted forensic observability layer**, not another RPC gateway.
 
 - **Provider dashboards** show the traffic, errors, latency, and usage seen by that provider.
-  Sentinel sits on the application side and can compare independent providers.
+  Heightproof sits on the application side and can compare independent providers.
 - **RPC failover and quorum gateways** route requests, retry failures, or wait for matching answers
-  before returning one. Sentinel observes your existing provider setup without becoming the gateway
+  before returning one. Heightproof observes your existing provider setup without becoming the gateway
   in the critical path.
 - **Generic APM and synthetic monitoring** can detect transport failures and predefined response
-  assertions. Sentinel understands RPC semantics: block tags, chain heads, reorgs, receipts, log
+  assertions. Heightproof understands RPC semantics: block tags, chain heads, reorgs, receipts, log
   ranges, JSON-RPC errors inside HTTP 200 responses, and method-level compute costs.
 
 The narrow distinction is: **sampled, block-pinned, non-blocking verification correlated with the
 application call that triggered it**. Verification runs out of band, has a hard request budget, and
 cannot fail the application's real RPC request.
 
-Sentinel does not claim to be the first system to compare RPC responses. Its goal is to make
+Heightproof does not claim to be the first system to compare RPC responses. Its goal is to make
 provider disagreement and silent data-quality failures independently observable, historically
 investigable, and reproducible in infrastructure you control.
 
-## What Sentinel detects
+## What Heightproof detects
 
 | Detector | What it catches | Status |
 |---|---|---|
@@ -66,7 +66,7 @@ handling for each one.
 
 ## Honest status
 
-Sentinel today is a **working self-hosted pipeline** — SDK, ingestion API, queue, worker, threat
+Heightproof today is a **working self-hosted pipeline** — SDK, ingestion API, queue, worker, threat
 engine, Postgres, dashboard, incidents, alerting — with **per-call RPC observability**: method,
 chain, provider, latency, and hard failures.
 
@@ -79,23 +79,23 @@ Cross-provider verification is off unless you configure it: it costs real reques
 endpoints you name. Enable it with a `verify` block naming your comparison endpoints, a sample
 rate, and a hard per-minute ceiling.
 
-This README describes where Sentinel is going and marks clearly what already runs. Nothing in the
+This README describes where Heightproof is going and marks clearly what already runs. Nothing in the
 "Shipping" rows above is aspirational.
 
 ## Use it
 
-`@sentinel/web3` is not on npm yet ([Phase 4](docs/roadmap.md#phase-4--adoption)) — build it from
+`@heightproof/web3` is not on npm yet ([Phase 4](docs/roadmap.md#phase-4--adoption)) — build it from
 this repo with `npm install && npm run build`.
 
 Wrap any EIP-1193 provider:
 
 ```ts
-import { wrapEip1193Provider } from "@sentinel/web3";
+import { wrapEip1193Provider } from "@heightproof/web3";
 
 const provider = wrapEip1193Provider(window.ethereum, {
   projectId: "my-project",
-  apiKey: process.env.SENTINEL_API_KEY!,
-  endpoint: "https://sentinel.internal",
+  apiKey: process.env.HEIGHTPROOF_API_KEY!,
+  endpoint: "https://heightproof.internal",
   chainId: 1,
   provider: "alchemy"
 });
@@ -106,14 +106,14 @@ Or use the viem transport:
 ```ts
 import { createPublicClient } from "viem";
 import { mainnet } from "viem/chains";
-import { sentinelTransport } from "@sentinel/web3";
+import { heightproofTransport } from "@heightproof/web3";
 
 const client = createPublicClient({
   chain: mainnet,
-  transport: sentinelTransport({
+  transport: heightproofTransport({
     projectId: "my-project",
-    apiKey: process.env.SENTINEL_API_KEY!,
-    endpoint: "https://sentinel.internal",
+    apiKey: process.env.HEIGHTPROOF_API_KEY!,
+    endpoint: "https://heightproof.internal",
     rpcUrl: process.env.EVM_RPC_URL!,
     chainId: 1,
     provider: "alchemy"
@@ -121,18 +121,18 @@ const client = createPublicClient({
 });
 ```
 
-Your RPC URL never leaves your process. Sentinel records a hash of the endpoint, never the URL
+Your RPC URL never leaves your process. Heightproof records a hash of the endpoint, never the URL
 itself, because provider URLs embed API keys.
 
 ## Run it
 
 ```bash
-git clone https://github.com/macjayz/sentinel.git
-cd sentinel
+git clone https://github.com/macjayz/heightproof.git
+cd heightproof
 docker compose up --build
 ```
 
-Open `http://localhost:5173` and sign in with `owner@sentinel.local` / `sentinel-demo`, or create
+Open `http://localhost:5173` and sign in with `owner@heightproof.local` / `heightproof-demo`, or create
 your own account. The `demo` project is seeded with realistic sample traffic on first boot.
 
 The dashboard runs at `http://localhost:5173`, the API at `http://localhost:8080`.
@@ -142,11 +142,11 @@ The dashboard runs at `http://localhost:5173`, the API at `http://localhost:8080
 ```text
 Your app
   |
-@sentinel/web3          EIP-1193 wrapper / viem transport
+@heightproof/web3          EIP-1193 wrapper / viem transport
   |
 Ingestion API           validates, scopes to project, never blocks your app
   |
-Redis Stream            your RPC calls are never slowed by Sentinel's storage
+Redis Stream            your RPC calls are never slowed by Heightproof's storage
   |
 Worker + detectors      scoring, cross-provider comparison, incident grouping
   |
@@ -156,23 +156,23 @@ Dashboard + WebSocket
 ```
 
 The SDK never writes to the database directly. RPC calls in your application are not slowed by
-Sentinel's storage layer, and a Sentinel outage cannot take down your app.
+Heightproof's storage layer, and a Heightproof outage cannot take down your app.
 
 Full design in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Supporting capability: your service's HTTP traffic
 
-Sentinel also instruments Express, REST, and GraphQL traffic through `@sentinel/sdk-node`. This
+Heightproof also instruments Express, REST, and GraphQL traffic through `@heightproof/sdk-node`. This
 exists so that an RPC incident can be correlated with the request that triggered it — when a
 provider goes stale, you want to see which of your endpoints served bad data because of it.
 
 ```ts
-import { sentinelExpress } from "@sentinel/sdk-node";
+import { heightproofExpress } from "@heightproof/sdk-node";
 
-app.use(sentinelExpress({
+app.use(heightproofExpress({
   projectId: "my-project",
-  apiKey: process.env.SENTINEL_API_KEY!,
-  endpoint: "https://sentinel.internal",
+  apiKey: process.env.HEIGHTPROOF_API_KEY!,
+  endpoint: "https://heightproof.internal",
   serviceName: "payments-api"
 }));
 ```

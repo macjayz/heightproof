@@ -1,6 +1,6 @@
 # Roadmap
 
-Sentinel's goal is to be the tool teams use to answer one question: **is my RPC provider telling me
+Heightproof's goal is to be the tool teams use to answer one question: **is my RPC provider telling me
 the truth?**
 
 Everything below is ordered by how much it serves that question. Work that does not serve it is
@@ -25,7 +25,7 @@ threw. Every differentiated detector needs the response body.
 - [x] Endpoint hashing — **never persist an RPC URL**, it embeds the provider API key
 - [x] Per-chain block-time table (mainnet, Base, Arbitrum, Optimism, Polygon) with a measured-median
       fallback for unknown chains
-- [x] SDK captures results: `wrapEip1193Provider` and `createSentinelRpcClient` now record block
+- [x] SDK captures results: `wrapEip1193Provider` and `createHeightproofRpcClient` now record block
       metadata, result hash, result shape, and JSON-RPC errors returned inside a 200 body
 - [x] Persist captured fields (`002_rpc_result_capture.sql`) with indexes shaped for D1–D6
 - [x] **D1 — Stale head** ([spec](detectors.md#d1--stale-head))
@@ -35,7 +35,7 @@ threw. Every differentiated detector needs the response body.
 - [ ] Dashboard: replace the generic RPC activity view with a provider-health view — head lag, silent
       failure rate, and cost per method per provider
 
-**Done when:** Sentinel can point at a single provider and report staleness, silent failures, and
+**Done when:** Heightproof can point at a single provider and report staleness, silent failures, and
 wasted spend that no other tool surfaces.
 
 ---
@@ -61,7 +61,7 @@ wasted spend that no other tool surfaces.
       (`npm run record:corpus`). Confirms normalization collapses real key-order variance; cases the
       sample did not produce are covered separately by clearly-labelled synthetic mutations
 
-**Done when:** Sentinel can catch two providers disagreeing at the same block height and show the
+**Done when:** Heightproof can catch two providers disagreeing at the same block height and show the
 diff.
 
 ---
@@ -81,7 +81,7 @@ harness open sourced so anyone can reproduce it.
 - [ ] Reproduction instructions so anyone can run it against their own providers
 
 **Done when:** there is a citable public dataset on EVM RPC provider reliability that did not exist
-before, and Sentinel is the tool that produced it.
+before, and Heightproof is the tool that produced it.
 
 **Rules for this phase:** report what the data says, including when it is unflattering to a
 narrative that would be better for the project. Contact providers with findings before publishing.
@@ -91,7 +91,7 @@ Credibility here is the entire point, and it is spent instantly by overclaiming.
 
 ## Phase 4 — Adoption
 
-- [ ] Publish `@sentinel/web3` to npm with real semver and a changelog
+- [ ] Publish `@heightproof/web3` to npm with real semver and a changelog
 - [ ] Hosted docs with a five-minute quickstart
 - [ ] Framework adapters: ethers.js, web3.js, plain `fetch`
 - [ ] Standalone mode — run the detectors without the full self-hosted stack
@@ -106,7 +106,7 @@ Credibility here is the entire point, and it is spent instantly by overclaiming.
 
 Already built and maintained, but no longer where the project's effort goes. These stay because they
 support the RPC story — correlating a provider incident with the request that triggered it — not
-because Sentinel competes on general observability.
+because Heightproof competes on general observability.
 
 - Express, REST, and GraphQL request monitoring
 - Application error grouping
@@ -114,7 +114,7 @@ because Sentinel competes on general observability.
 - Project and user management UI
 - API key rotation UI
 
-Sentry, Datadog, and OpenTelemetry are better at general APM and always will be. Sentinel does not
+Sentry, Datadog, and OpenTelemetry are better at general APM and always will be. Heightproof does not
 try to win there.
 
 ---
@@ -135,7 +135,7 @@ no anonymous fallback.
 destinations with exponential-backoff retries and terminal failure handling; configurable alert rule
 engine over error rate, p95 latency, threat score, request volume, and auth failures.
 
-**v0.1 — web3 foundation.** `@sentinel/web3` with EIP-1193 wrapper, viem-compatible transport, and
+**v0.1 — web3 foundation.** `@heightproof/web3` with EIP-1193 wrapper, viem-compatible transport, and
 standalone JSON-RPC client; per-call recording of method, chain, provider, latency, and hard
 failures; web3 threat rules for RPC method flooding, wallet transaction bursts, provider latency
 degradation, and elevated provider failure rates.

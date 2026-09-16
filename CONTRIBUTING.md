@@ -1,6 +1,6 @@
 # Contributing
 
-Sentinel is in MVP development. Contributions should keep the first release focused on the ingestion pipeline, Node SDK, threat scoring, and dashboard.
+Heightproof is in MVP development. Contributions should keep the first release focused on the ingestion pipeline, Node SDK, threat scoring, and dashboard.
 
 ## Development
 

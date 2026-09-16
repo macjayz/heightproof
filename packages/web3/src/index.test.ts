@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { createSentinelRpcClient, wrapEip1193Provider } from "./index.js";
+import { createHeightproofRpcClient, wrapEip1193Provider } from "./index.js";
 
 const captured: unknown[] = [];
 
-vi.mock("@sentinel/sdk-node", () => ({
-  SentinelClient: class {
+vi.mock("@heightproof/sdk-node", () => ({
+  HeightproofClient: class {
     capture(event: unknown) {
       captured.push(event);
     }
@@ -20,7 +20,7 @@ describe("web3 sdk", () => {
       },
       {
         projectId: "demo",
-        apiKey: "dev-sentinel-key",
+        apiKey: "dev-heightproof-key",
         endpoint: "http://localhost:8080",
         chainId: 1,
         provider: "alchemy"
@@ -54,7 +54,7 @@ describe("web3 sdk", () => {
       },
       {
         projectId: "demo",
-        apiKey: "dev-sentinel-key",
+        apiKey: "dev-heightproof-key",
         endpoint: "http://localhost:8080"
       }
     );
@@ -71,7 +71,7 @@ describe("web3 sdk", () => {
 describe("result capture", () => {
   const baseOptions = {
     projectId: "demo",
-    apiKey: "dev-sentinel-key",
+    apiKey: "dev-heightproof-key",
     endpoint: "http://localhost:8080",
     chainId: 1,
     provider: "alchemy"
@@ -132,7 +132,7 @@ describe("result capture", () => {
     }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const client = createSentinelRpcClient({ ...baseOptions, rpcUrl: "https://rpc.example/v2/secret" });
+    const client = createHeightproofRpcClient({ ...baseOptions, rpcUrl: "https://rpc.example/v2/secret" });
 
     await expect(client.request({ method: "eth_call", params: [{ to: "0xabc" }, "latest"] })).rejects.toThrow();
 
@@ -158,7 +158,7 @@ describe("result capture", () => {
     }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const client = createSentinelRpcClient({
+    const client = createHeightproofRpcClient({
       ...baseOptions,
       rpcUrl: "https://eth-mainnet.g.alchemy.com/v2/super-secret-key"
     });

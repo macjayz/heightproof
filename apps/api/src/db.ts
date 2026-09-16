@@ -68,7 +68,7 @@ export async function createWorkspaceOwner(
   const email = normalizeEmail(input.email);
   const projectId = makeProjectId(input.projectName);
   const passwordHash = await hashPassword(input.password);
-  const key = `sentinel_${randomBytes(24).toString("base64url")}`;
+  const key = `heightproof_${randomBytes(24).toString("base64url")}`;
   const prefix = key.slice(0, 17);
 
   try {
@@ -604,7 +604,7 @@ export async function listApiKeys(pool: pg.Pool, projectId: string) {
 }
 
 export async function createApiKey(pool: pg.Pool, projectId: string, name: string) {
-  const key = `sentinel_${randomBytes(24).toString("base64url")}`;
+  const key = `heightproof_${randomBytes(24).toString("base64url")}`;
   const prefix = key.slice(0, 17);
   const result = await pool.query(
     `

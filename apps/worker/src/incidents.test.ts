@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { SentinelEvent } from "@sentinel/shared";
+import { HeightproofEvent } from "@heightproof/shared";
 import { fingerprintIncident } from "./incidents.js";
 
-const baseEvent: SentinelEvent = {
+const baseEvent: HeightproofEvent = {
   id: "event-1",
   projectId: "demo",
   serviceName: "api",
@@ -40,7 +40,7 @@ describe("incident fingerprinting", () => {
     expect(fingerprintIncident(baseEvent, { score: 10, severity: "low", signals: [] })).toBeNull();
   });
 
-  const rpcEvent: SentinelEvent = {
+  const rpcEvent: HeightproofEvent = {
     ...baseEvent,
     kind: "evm_rpc",
     request: { ...baseEvent.request, path: "/rpc", route: "/rpc" },
@@ -74,7 +74,7 @@ describe("incident fingerprinting", () => {
   });
 
   it("groups transaction bursts by wallet address", () => {
-    const txEvent: SentinelEvent = {
+    const txEvent: HeightproofEvent = {
       ...rpcEvent,
       evmRpc: { method: "eth_sendRawTransaction", walletAddress: "0x1234567890abcdef" }
     };
@@ -111,7 +111,7 @@ describe("incident fingerprinting", () => {
 });
 
 describe("verification incidents", () => {
-  const rpcEvent: SentinelEvent = {
+  const rpcEvent: HeightproofEvent = {
     ...baseEvent,
     kind: "evm_rpc",
     evmRpc: {

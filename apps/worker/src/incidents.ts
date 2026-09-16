@@ -1,4 +1,4 @@
-import { SentinelEvent, ThreatAssessment } from "@sentinel/shared";
+import { HeightproofEvent, ThreatAssessment } from "@heightproof/shared";
 
 export type IncidentFingerprint = {
   key: string;
@@ -9,7 +9,7 @@ export type IncidentFingerprint = {
 };
 
 export function fingerprintIncident(
-  event: SentinelEvent,
+  event: HeightproofEvent,
   assessment: ThreatAssessment
 ): IncidentFingerprint | null {
   if (assessment.score < 25) return null;
@@ -212,7 +212,7 @@ export function fingerprintIncident(
   };
 }
 
-function providerLabel(event: SentinelEvent): string {
+function providerLabel(event: HeightproofEvent): string {
   return event.evmRpc?.provider ?? "unknown provider";
 }
 
