@@ -2,6 +2,13 @@
 
 All notable changes to Heightproof will be documented in this file.
 
+## Unreleased
+
+- Added a Helm chart (`deploy/helm/heightproof`) for the API, worker and dashboard, with optional bundled Postgres and Redis StatefulSets, generated-and-persisted secrets, advisory-locked migration init containers, optional ingress/HPA/PDB, hardened pod security defaults, and a `helm test` smoke test.
+- Added a production dashboard image (`infra/dashboard.prod.Dockerfile`): a static Vite build served by unprivileged nginx that proxies the API and `/live` WebSocket on the same origin. An empty `VITE_HEIGHTPROOF_API_URL` now means "same origin".
+- Workers deployed on Kubernetes use the pod name as their Redis consumer name, so replicas no longer collide on `worker-1`.
+- Added a Kubernetes CI workflow (chart lint plus a kind end-to-end install that proves events flow API → Redis → worker → Postgres) and a release workflow that publishes multi-arch images with SBOM and provenance to GHCR, and the chart as an OCI artifact on `v*` tags.
+
 ## 0.1.0-alpha
 
 Initial alpha release.

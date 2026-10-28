@@ -1,0 +1,13 @@
+{{- if .Values.migrations.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "heightproof.fullname" . }}-migrations
+  labels:
+    {{- include "heightproof.labels" . | nindent 4 }}
+data:
+{{- range $path, $_ := .Files.Glob "files/migrations/*.sql" }}
+  {{ base $path }}: |-
+{{ $.Files.Get $path | indent 4 }}
+{{- end }}
+{{- end }}
