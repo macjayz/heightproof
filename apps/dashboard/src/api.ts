@@ -1,4 +1,8 @@
-export const apiBase = import.meta.env.VITE_HEIGHTPROOF_API_URL ?? "http://localhost:8080";
+// An empty VITE_HEIGHTPROOF_API_URL means the API is proxied on the dashboard's own origin
+// (infra/dashboard.prod.Dockerfile); unset keeps the local-dev default.
+const configuredApiUrl = import.meta.env.VITE_HEIGHTPROOF_API_URL;
+export const apiBase =
+  configuredApiUrl === "" ? window.location.origin : (configuredApiUrl ?? "http://localhost:8080");
 
 export const demoMode = import.meta.env.VITE_HEIGHTPROOF_DEMO_MODE === "true";
 

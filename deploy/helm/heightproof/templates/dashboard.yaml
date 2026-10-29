@@ -1,0 +1,84 @@
+{{- if .Values.dashboard.enabled }}
+{{- $c := dict "ctx" $ "component" "dashboard" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "heightproof.fullname" . }}-dashboard
+  labels:
+    {{- include "heightproof.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dashboard
+spec:
+  replicas: {{ .Values.dashboard.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "heightproof.selectorLabels" $c | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "heightproof.selectorLabels" $c | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "heightproof.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: dashboard
+          image: {{ include "heightproof.image" $c }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          env:
+            - name: API_UPSTREAM
+              value: {{ printf "http://%s-api:%v" (include "heightproof.fullname" .) .Values.api.service.port | quote }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.dashboard.port }}
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.dashboard.resources | nindent 12 }}
+          # nginx renders its config template into conf.d at startup and needs scratch space.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: nginx-conf
+              mountPath: /etc/nginx/conf.d
+      volumes:
+        {{- include "heightproof.tmpVolume" . | nindent 8 }}
+        - name: nginx-conf
+          emptyDir: {}
+      {{- with .Values.dashboard.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.dashboard.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.dashboard.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "heightproof.fullname" . }}-dashboard
+  labels:
+    {{- include "heightproof.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dashboard
+spec:
+  type: {{ .Values.dashboard.service.type }}
+  selector:
+    {{- include "heightproof.selectorLabels" $c | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.dashboard.service.port }}
+      targetPort: http
+{{- end }}

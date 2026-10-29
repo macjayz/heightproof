@@ -1,0 +1,54 @@
+name: Kubernetes
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  chart-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Lint chart
+        run: helm lint deploy/helm/heightproof --strict
+
+      - name: Render default and production-shaped values
+        run: |
+          helm template hp deploy/helm/heightproof > /dev/null
+          helm template hp deploy/helm/heightproof \
+            --set postgresql.enabled=false,externalDatabase.url=postgres://u:p@db:5432/hp \
+            --set redis.enabled=false,externalRedis.url=redis://cache:6379 \
+            --set ingress.enabled=true,api.autoscaling.enabled=true,api.podDisruptionBudget.enabled=true \
+            > /dev/null
+
+  kind-e2e:
+    needs: chart-lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: heightproof
+
+      - name: Build, install and verify
+        run: deploy/kind/e2e.sh heightproof
+
+      - name: Diagnostics
+        if: failure()
+        run: |
+          kubectl -n heightproof get all,pvc
+          kubectl -n heightproof describe pods
+          kubectl -n heightproof logs --all-containers --prefix -l app.kubernetes.io/instance=hp --tail=100
