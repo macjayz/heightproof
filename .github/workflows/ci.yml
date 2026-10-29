@@ -38,6 +38,56 @@ jobs:
         run: npm audit --omit=dev
         continue-on-error: true
 
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: heightproof
+          POSTGRES_PASSWORD: heightproof
+          POSTGRES_DB: heightproof
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U heightproof"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://heightproof:heightproof@localhost:5432/heightproof
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci --include=optional
+
+      - name: Build shared package
+        run: npm run build -w packages/shared
+
+      - name: Apply migrations
+        run: for file in infra/migrations/*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$file"; done
+
+      - name: Worker integration tests
+        run: npm run test:integration
+
   docker-build:
     runs-on: ubuntu-latest
     steps:

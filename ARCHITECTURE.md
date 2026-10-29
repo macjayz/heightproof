@@ -133,17 +133,22 @@ it cannot add latency to the monitored application's own request/response cycle.
 
 ## 5. Processing path (the worker)
 
-`apps/worker/src/worker.ts` runs three loops back-to-back in an infinite `while (true)` (see the
-bottom of the file): `tick()`, `deliverAlerts()`, `checkAlertRules()` (rate-limited to once per
-30 seconds via `ALERT_RULE_EVAL_INTERVAL_MS`). Each is a full pass, not a fire-and-forget task —
-the worker is a simple single-process consumer with no internal concurrency beyond what Postgres
-and Redis give it for free.
+`apps/worker/src/worker.ts` runs one loop until it receives SIGTERM/SIGINT (see the bottom of the
+file): `heartbeat()`, `reclaim()`, `tick()`, `deliverAlerts()`, `checkAlertRules()` (rate-limited
+to once per 30 seconds via `ALERT_RULE_EVAL_INTERVAL_MS`). Each is a full pass, not a
+fire-and-forget task — the worker is a simple single-process consumer with no internal concurrency
+beyond what Postgres and Redis give it for free. If any step throws (Postgres unreachable, a query
+failing) the iteration is logged and retried after an exponential backoff of 1s doubling to 30s;
+the process does not exit. A signal stops the loop after the current batch is acked, so a deploy or
+`docker stop` does not strand in-flight messages.
 
 `tick()` reads up to 25 messages via `XREADGROUP` against the `heightproof-workers` consumer group
 (`BLOCK 5000` so it doesn't spin when idle), and for each message:
 
-1. Parses the JSON payload back into a `HeightproofEvent` with `HeightproofEventSchema.safeParse`. A
-   parse failure is silently acknowledged and dropped — there is no dead-letter path today.
+1. Parses the payload with `parseStreamMessage()` (`apps/worker/src/stream.ts`), which never throws.
+   A message with no `event` field, invalid JSON, or a schema mismatch can never succeed, so it is
+   copied to the dead-letter stream `heightproof:events:dlq` (with a `reason` and the original id)
+   and acked in one `MULTI`.
 2. On success, wraps the rest of the work in an OpenTelemetry span
    (`heightproof.worker.process_event`) and:
    - Fetches context needed for scoring in parallel: `countRecentIpRequests()` (requests from this
@@ -156,7 +161,8 @@ and Redis give it for free.
      upserts an `incidents` row (see below).
    - Calls `recordErrorGroup()`, which fingerprints any captured `error` and upserts an
      `error_groups` row.
-3. Only after that whole span completes without throwing does the worker `XACK` the message.
+3. Only after that whole span completes without throwing does the worker `XACK` the message. If
+   it throws, the message stays in the pending entries list and `reclaim()` retries it (§11).
 
 **Threat scoring (`assessThreat`, `packages/shared/src/index.ts`).** This is a pure, additive
 heuristic — not a model. Each applicable rule adds a weighted signal (`{name, weight, reason}`);
@@ -216,7 +222,7 @@ after 5 attempts, marks it `failed` permanently.
 ```mermaid
 flowchart TD
     A["Event popped off Redis stream"] --> B{"Schema valid?"}
-    B -- "no" --> Z["Ack + drop\n(no dead-letter path)"]
+    B -- "no" --> Z["XADD to heightproof:events:dlq\n+ XACK (one MULTI)"]
     B -- "yes" --> C["Gather scoring context:\nrecent IP request count,\nweb3 baseline stats (if evm_rpc)"]
     C --> D["assessThreat()\nadditive weighted signals"]
     D --> E["persistEvent()\nINSERT api_events"]
@@ -474,23 +480,24 @@ already exists) under a consumer name of `worker-${process.pid}` by default
 (`apps/worker/src/config.ts`). Redis Streams' consumer-group semantics mean that if you run more
 than one worker process against the same group, each stream message is delivered to exactly one
 consumer, so horizontal scaling of workers is a matter of starting more processes — no additional
-partitioning logic needed. What the current code does *not* do is reclaim messages left pending by
-a consumer that died mid-processing: there's no `XCLAIM`/`XAUTOCLAIM` call anywhere in the
-codebase, so a message that was delivered but never acked (because its worker crashed before
-finishing) stays in that consumer's Pending Entries List until something claims it. That's a real
-gap worth knowing about if you're evaluating this for production use beyond its stated MVP scope.
+partitioning logic needed. Messages left pending by a consumer that died mid-processing, or by a
+failed processing attempt, are recovered by `claimAbandoned()` (`apps/worker/src/stream.ts`) at the
+start of every loop: it lists pending entries idle for at least `HEIGHTPROOF_RECLAIM_MIN_IDLE_MS`
+(default 60s) with `XPENDING ... IDLE`, takes them over with `XCLAIM` (which re-checks idle time,
+so two workers cannot both win a message), and processes them. An entry already delivered
+`HEIGHTPROOF_MAX_DELIVERIES` times (default 20, roughly 20 minutes of continuous failure) is
+dead-lettered with reason `max_deliveries_exceeded` instead of being retried forever.
 
 **At-least-once processing, not exactly-once.** Within `tick()`, `XACK` is only called after the
 per-message `withSpan("heightproof.worker.process_event", ...)` block completes without throwing —
 it's the last line of the loop body, after persistence, incident creation, and error-group
 recording. If any of those steps throws, the exception propagates out of `withSpan` (which records
-it and re-raises) and the `XACK` call is skipped, leaving the message pending for eventual
-redelivery. `persistEvent()`'s `INSERT ... ON CONFLICT (id) DO NOTHING` makes redelivered event rows
+it and re-raises), the `XACK` call is skipped, and the message is reclaimed and retried as above. `persistEvent()`'s `INSERT ... ON CONFLICT (id) DO NOTHING` makes redelivered event rows
 idempotent on `api_events.id`; incident and error-group updates are aggregate upserts, so
 reprocessing the same event twice (a case that can't currently happen without a redelivery
 mechanism being added, per the gap above, but would need care if one were) would double-count
 `request_count` and `occurrences` — there's no per-message idempotency key for those aggregate
-tables today.
+tables today, and now that redelivery exists this can happen after a partial failure.
 
 **Alert delivery retries.** `claimAlertDeliveries()`'s `FOR UPDATE SKIP LOCKED` claim (§5) is a
 separate reliability mechanism from the Redis consumer group — it's how multiple worker processes
@@ -498,10 +505,19 @@ could safely share the alert-delivery backlog without both sending the same webh
 deliveries retry with exponential backoff (`30 * 2^attempts` seconds, capped at 3600) up to 5
 attempts, then are marked `failed` permanently with the last error message recorded.
 
-**Operational visibility.** `GET /ready` and `GET /metrics` (`apps/api/src/observability.ts`)
-report database round-trip latency and Redis Stream backlog (via `XINFO GROUPS`, falling back to
-`XLEN` when no group exists yet) so an operator can see queue depth and readiness without
-instrumenting anything themselves.
+**Postgres connection loss.** Both services attach a `pool.on("error")` listener in `createPool()`.
+Without it, an idle client killed by a Postgres restart or failover is an unhandled `'error'` event
+and exits the process. Compose also sets `restart: unless-stopped` on `api`, `worker` and
+`dashboard` as a second line of defence.
+
+**Operational visibility.** `GET /ready` (`apps/api/src/observability.ts`) answers `503` with
+`status: "degraded"` when any of three checks fails: the database round trip; the queue, which
+fails when the oldest unacked or unread message is older than `HEIGHTPROOF_MAX_QUEUE_AGE_MS`
+(default 60s) — age rather than depth, since a burst that drains is healthy and a stuck message is
+not; and the worker, which fails when no worker has refreshed the `heightproof:events:heartbeat`
+key within its TTL (default 30s). `GET /metrics` exports `heightproof_queue_depth` and
+`heightproof_queue_oldest_age_seconds`. Note that API keys other than the dev fallback key are
+resolved against Postgres, so project-key ingestion returns `500` while the database is down.
 
 ## 12. Extensibility
 

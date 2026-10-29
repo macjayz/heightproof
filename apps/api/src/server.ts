@@ -82,7 +82,16 @@ export async function buildServer() {
   });
 
   app.get("/health", async () => ({ ok: true }));
-  app.get("/ready", async () => buildReadiness(pool, redis, config.streamName, config.groupName));
+  app.get("/ready", async (_request, reply) => {
+    const readiness = await buildReadiness(pool, redis, {
+      streamName: config.streamName,
+      groupName: config.groupName,
+      heartbeatKey: config.workerHeartbeatKey,
+      maxQueueAgeMs: config.maxQueueAgeMs
+    });
+    // 503 lets orchestrators and uptime probes act on "degraded" without parsing the body.
+    return reply.code(readiness.status === "ready" ? 200 : 503).send(readiness);
+  });
   app.get("/metrics", async (_request, reply) => {
     const snapshot = await buildMetricsSnapshot(metrics, pool, redis, config.streamName, config.groupName, liveHub);
     reply.header("content-type", "text/plain; version=0.0.4").send(toPrometheus(snapshot));

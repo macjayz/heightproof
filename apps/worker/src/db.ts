@@ -21,7 +21,14 @@ import { fingerprintIncident } from "./incidents.js";
 const { Pool } = pg;
 
 export function createPool(config: WorkerConfig) {
-  return new Pool({ connectionString: config.databaseUrl });
+  const pool = new Pool({ connectionString: config.databaseUrl, application_name: "heightproof-worker" });
+  // pg-pool re-emits errors from idle clients (e.g. Postgres restarting). Without a listener
+  // Node treats that as an unhandled 'error' event and exits the process. The pool already
+  // discards the broken client, so logging is all that is needed here.
+  pool.on("error", (error) => {
+    console.error(JSON.stringify({ level: "error", msg: "postgres idle client error", error: error.message }));
+  });
+  return pool;
 }
 
 export async function countRecentIpRequests(pool: pg.Pool, projectId: string, ip?: string) {
@@ -677,8 +684,20 @@ export async function createIncidentIfNeeded(
           affected_endpoint, attacker_ips, request_count, started_at, last_seen_at, status
         )
         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1, $10, $10, 'open')
-        on conflict (incident_key) do nothing
-        returning id
+        -- incident_key is unique across all statuses. A recurrence of a resolved incident reopens
+        -- it (and alerts again); an ignored incident stays suppressed. Without the update branch
+        -- a resolved problem could never raise an incident or alert again.
+        on conflict (incident_key) do update
+        set status = 'open',
+            severity = excluded.severity,
+            description = excluded.description,
+            signals = excluded.signals,
+            attacker_ips = excluded.attacker_ips,
+            request_count = incidents.request_count + 1,
+            started_at = excluded.started_at,
+            last_seen_at = excluded.last_seen_at
+        where incidents.status = 'resolved'
+        returning id, (xmax <> 0) as reopened
         `,
         [
           event.id,
@@ -695,6 +714,7 @@ export async function createIncidentIfNeeded(
       );
       incidentId = created.rows[0]?.id ?? null;
       isNewIncident = Boolean(incidentId);
+      await recordReopen(client, created.rows[0], event.projectId);
     }
 
     if (incidentId && isNewIncident && shouldQueueAlertDelivery(assessment.severity)) {
@@ -716,6 +736,22 @@ export async function createIncidentIfNeeded(
   } finally {
     client.release();
   }
+}
+
+/**
+ * Adds a timeline entry when an insert-or-reopen upsert reopened a resolved incident. Skipped for
+ * projects that have no `projects` row (dev-key traffic), which the timeline's foreign key rejects.
+ */
+async function recordReopen(client: pg.PoolClient, row: { id?: string; reopened?: boolean } | undefined, projectId: string) {
+  if (!row?.id || !row.reopened) return;
+  await client.query(
+    `
+    insert into incident_timeline (incident_id, project_id, action, actor, note)
+    select $1, $2, 'status:open', 'worker', 'Reopened: the problem recurred after it was resolved'
+    where exists (select 1 from projects where id = $2)
+    `,
+    [row.id, projectId]
+  );
 }
 
 const MAX_ALERT_DELIVERY_ATTEMPTS = 5;
@@ -851,8 +887,15 @@ export async function raiseAlertRuleIncident(pool: pg.Pool, rule: AlertRule, val
           affected_endpoint, attacker_ips, request_count, started_at, last_seen_at, status
         )
         values (null, $1, $2, 'high', $3, $4, $5, $6, $7, 1, $8, $8, 'open')
-        on conflict (incident_key) do nothing
-        returning id
+        -- See createIncidentIfNeeded: a resolved incident reopens, an ignored one stays quiet.
+        on conflict (incident_key) do update
+        set status = 'open',
+            description = excluded.description,
+            request_count = incidents.request_count + 1,
+            started_at = excluded.started_at,
+            last_seen_at = excluded.last_seen_at
+        where incidents.status = 'resolved'
+        returning id, (xmax <> 0) as reopened
         `,
         [
           incidentKey,
@@ -867,6 +910,7 @@ export async function raiseAlertRuleIncident(pool: pg.Pool, rule: AlertRule, val
       );
       incidentId = created.rows[0]?.id ?? null;
       isNewIncident = Boolean(incidentId);
+      await recordReopen(client, created.rows[0], rule.project_id);
     }
 
     if (incidentId && isNewIncident) {
