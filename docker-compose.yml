@@ -32,6 +32,7 @@ services:
       dockerfile: infra/node.Dockerfile
       args:
         WORKSPACE: apps/api
+    restart: unless-stopped
     environment:
       PORT: 8080
       DATABASE_URL: postgres://heightproof:heightproof@postgres:5432/heightproof
@@ -60,6 +61,7 @@ services:
       dockerfile: infra/node.Dockerfile
       args:
         WORKSPACE: apps/worker
+    restart: unless-stopped
     environment:
       DATABASE_URL: postgres://heightproof:heightproof@postgres:5432/heightproof
       REDIS_URL: redis://redis:6379
@@ -73,6 +75,7 @@ services:
     build:
       context: .
       dockerfile: infra/dashboard.Dockerfile
+    restart: unless-stopped
     environment:
       VITE_HEIGHTPROOF_API_URL: http://localhost:8080
     ports:

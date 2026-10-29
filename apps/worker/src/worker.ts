@@ -1,8 +1,8 @@
 import { Redis } from "ioredis";
-import { assessThreat, HeightproofEventSchema, withSpan } from "@heightproof/shared";
+import { assessThreat, withSpan } from "@heightproof/shared";
 import { deliverPendingAlerts } from "./alerts.js";
 import { evaluateAlertRules } from "./alertRules.js";
-import { loadConfig } from "./config.js";
+import { loadConfig, WorkerConfig } from "./config.js";
 import {
   countRecentIpRequests,
   createIncidentIfNeeded,
@@ -12,11 +12,16 @@ import {
   raiseAlertRuleIncident,
   recordErrorGroup
 } from "./db.js";
+import { claimAbandoned, deadLetter, parseStreamMessage, StreamMessage } from "./stream.js";
 
 const ALERT_RULE_EVAL_INTERVAL_MS = 30_000;
+const MAX_BACKOFF_MS = 30_000;
 
-export async function runWorker() {
-  const config = loadConfig();
+export async function runWorker(
+  overrides: Partial<WorkerConfig> = {},
+  options: { blockMs?: number } = {}
+) {
+  const config = loadConfig(overrides);
   const redis = new Redis(config.redisUrl, { maxRetriesPerRequest: null });
   const pool = createPool(config);
   let lastAlertRuleEvalAt = 0;
@@ -27,6 +32,42 @@ export async function runWorker() {
     if (!(error instanceof Error) || !error.message.includes("BUSYGROUP")) throw error;
   }
 
+  // Processing errors (Postgres down, a query failing) propagate and leave the message pending
+  // without an XACK, so claimAbandoned() retries it later. Only unparseable messages, which can
+  // never succeed, are dead-lettered immediately.
+  async function processMessages(messages: StreamMessage[]) {
+    for (const [messageId, fields] of messages) {
+      const parsed = parseStreamMessage(fields);
+      if (!parsed.ok) {
+        await deadLetter(redis, config, messageId, fields, parsed.reason);
+        continue;
+      }
+
+      const event = parsed.event;
+      await withSpan(
+        "heightproof.worker.process_event",
+        {
+          "heightproof.event_id": event.id,
+          "heightproof.trace_id": event.traceId,
+          "heightproof.project_id": event.projectId,
+          "heightproof.kind": event.kind
+        },
+        async () => {
+          const [recentIpRequests, web3Context] = await Promise.all([
+            countRecentIpRequests(pool, event.projectId, event.request.ip),
+            getWeb3ThreatContext(pool, event)
+          ]);
+          const assessment = assessThreat(event, recentIpRequests, web3Context);
+          await persistEvent(pool, event, assessment);
+          await createIncidentIfNeeded(pool, event, assessment);
+          await recordErrorGroup(pool, event);
+        }
+      );
+
+      await redis.xack(config.streamName, config.groupName, messageId);
+    }
+  }
+
   async function tick() {
     const response = await redis.xreadgroup(
       "GROUP",
@@ -35,7 +76,7 @@ export async function runWorker() {
       "COUNT",
       25,
       "BLOCK",
-      5000,
+      options.blockMs ?? 5000,
       "STREAMS",
       config.streamName,
       ">"
@@ -43,37 +84,24 @@ export async function runWorker() {
 
     if (!response) return;
 
-    for (const [, messages] of response as Array<[string, Array<[string, string[]]>]>) {
-      for (const [messageId, fields] of messages) {
-        const eventFieldIndex = fields.findIndex((field: string) => field === "event");
-        const eventJson = fields[eventFieldIndex + 1];
-        const parsed = HeightproofEventSchema.safeParse(JSON.parse(eventJson));
-
-        if (parsed.success) {
-          await withSpan(
-            "heightproof.worker.process_event",
-            {
-              "heightproof.event_id": parsed.data.id,
-              "heightproof.trace_id": parsed.data.traceId,
-              "heightproof.project_id": parsed.data.projectId,
-              "heightproof.kind": parsed.data.kind
-            },
-            async () => {
-              const [recentIpRequests, web3Context] = await Promise.all([
-                countRecentIpRequests(pool, parsed.data.projectId, parsed.data.request.ip),
-                getWeb3ThreatContext(pool, parsed.data)
-              ]);
-              const assessment = assessThreat(parsed.data, recentIpRequests, web3Context);
-              await persistEvent(pool, parsed.data, assessment);
-              await createIncidentIfNeeded(pool, parsed.data, assessment);
-              await recordErrorGroup(pool, parsed.data);
-            }
-          );
-        }
-
-        await redis.xack(config.streamName, config.groupName, messageId);
-      }
+    for (const [, messages] of response as Array<[string, StreamMessage[]]>) {
+      await processMessages(messages);
     }
+  }
+
+  async function reclaim() {
+    const claimed = await claimAbandoned(redis, config);
+    await processMessages(claimed);
+    return claimed.length;
+  }
+
+  async function heartbeat() {
+    await redis.set(
+      config.heartbeatKey,
+      JSON.stringify({ consumer: config.consumerName, at: new Date().toISOString() }),
+      "PX",
+      config.heartbeatTtlMs
+    );
   }
 
   async function deliverAlerts() {
@@ -87,7 +115,12 @@ export async function runWorker() {
   }
 
   return {
+    config,
+    pool,
+    redis,
     tick,
+    reclaim,
+    heartbeat,
     deliverAlerts,
     checkAlertRules,
     async close() {
@@ -97,14 +130,47 @@ export async function runWorker() {
   };
 }
 
+export function backoffDelayMs(consecutiveFailures: number) {
+  return Math.min(1000 * 2 ** Math.max(consecutiveFailures - 1, 0), MAX_BACKOFF_MS);
+}
+
 if (process.env.NODE_ENV !== "test") {
   const worker = await runWorker();
-  process.on("SIGTERM", () => void worker.close().then(() => process.exit(0)));
-  process.on("SIGINT", () => void worker.close().then(() => process.exit(0)));
+  let stopping = false;
+  let consecutiveFailures = 0;
 
-  while (true) {
-    await worker.tick();
-    await worker.deliverAlerts();
-    await worker.checkAlertRules();
+  // Signals only stop the loop. The current batch finishes and is acked before the connections
+  // close, so a deploy or `docker stop` no longer strands in-flight messages.
+  const stop = () => {
+    stopping = true;
+  };
+  process.on("SIGTERM", stop);
+  process.on("SIGINT", stop);
+
+  while (!stopping) {
+    try {
+      await worker.heartbeat();
+      await worker.reclaim();
+      await worker.tick();
+      await worker.deliverAlerts();
+      await worker.checkAlertRules();
+      consecutiveFailures = 0;
+    } catch (error) {
+      consecutiveFailures += 1;
+      const delayMs = backoffDelayMs(consecutiveFailures);
+      console.error(
+        JSON.stringify({
+          level: "error",
+          msg: "worker iteration failed; backing off",
+          error: error instanceof Error ? error.message : String(error),
+          consecutiveFailures,
+          delayMs
+        })
+      );
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
   }
+
+  await worker.close();
+  process.exit(0);
 }

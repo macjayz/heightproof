@@ -25,17 +25,26 @@ export function createRuntimeMetrics(): RuntimeMetrics {
   };
 }
 
-export async function buildReadiness(pool: pg.Pool, redis: Redis, streamName: string, groupName: string) {
-  const [database, queue] = await Promise.all([
+export type ReadinessTarget = {
+  streamName: string;
+  groupName: string;
+  heartbeatKey: string;
+  maxQueueAgeMs: number;
+};
+
+export async function buildReadiness(pool: pg.Pool, redis: Redis, target: ReadinessTarget, now = Date.now()) {
+  const [database, queue, worker] = await Promise.all([
     measureDatabase(pool),
-    measureQueue(redis, streamName, groupName)
+    measureQueue(redis, target, now),
+    measureWorker(redis, target.heartbeatKey)
   ]);
 
   return {
-    status: database.ok && queue.ok ? "ready" : "degraded",
+    status: database.ok && queue.ok && worker.ok ? "ready" : "degraded",
     checks: {
       database,
-      queue
+      queue,
+      worker
     }
   };
 }
@@ -48,9 +57,9 @@ export async function buildMetricsSnapshot(
   groupName: string,
   liveHub: LiveHubStats
 ) {
-  const [database, queueDepth] = await Promise.all([
+  const [database, queueState] = await Promise.all([
     measureDatabase(pool),
-    measureQueueBacklog(redis, streamName, groupName)
+    measureQueueState(redis, streamName, groupName)
   ]);
 
   return {
@@ -59,7 +68,8 @@ export async function buildMetricsSnapshot(
     ingestionRate: metrics.ingestionEvents,
     ingestionBatches: metrics.ingestionBatches,
     failedJobs: metrics.failedIngestionBatches,
-    queueDepth,
+    queueDepth: queueState.depth,
+    queueOldestAgeSeconds: Math.round(queueState.oldestAgeMs / 1000),
     databaseLatencyMs: database.latencyMs,
     processingLatencyMs: 0,
     websocketConnections: liveHub.connectionCount(),
@@ -87,6 +97,9 @@ export function toPrometheus(snapshot: Awaited<ReturnType<typeof buildMetricsSna
     "# HELP heightproof_queue_depth Current Redis Stream consumer backlog.",
     "# TYPE heightproof_queue_depth gauge",
     `heightproof_queue_depth ${snapshot.queueDepth}`,
+    "# HELP heightproof_queue_oldest_age_seconds Age of the oldest unacknowledged or unread stream message.",
+    "# TYPE heightproof_queue_oldest_age_seconds gauge",
+    `heightproof_queue_oldest_age_seconds ${snapshot.queueOldestAgeSeconds}`,
     "# HELP heightproof_database_latency_ms Database health query latency.",
     "# TYPE heightproof_database_latency_ms gauge",
     `heightproof_database_latency_ms ${snapshot.databaseLatencyMs}`,
@@ -110,36 +123,81 @@ async function measureDatabase(pool: pg.Pool) {
   }
 }
 
-async function measureQueue(redis: Redis, streamName: string, groupName: string) {
+async function measureQueue(redis: Redis, target: ReadinessTarget, now: number) {
   const started = performance.now();
 
   try {
-    const depth = await measureQueueBacklog(redis, streamName, groupName);
-    return { ok: true, latencyMs: Math.round(performance.now() - started), depth };
+    const { depth, oldestAgeMs } = await measureQueueState(redis, target.streamName, target.groupName, now);
+    // Depth alone says nothing about health (a burst is fine if it drains); age of the oldest
+    // unprocessed message is what climbs when the worker is dead, stuck, or messages are stranded.
+    return {
+      ok: oldestAgeMs <= target.maxQueueAgeMs,
+      latencyMs: Math.round(performance.now() - started),
+      depth,
+      oldestAgeMs
+    };
   } catch {
-    return { ok: false, latencyMs: -1, depth: -1 };
+    return { ok: false, latencyMs: -1, depth: -1, oldestAgeMs: -1 };
   }
 }
 
-async function measureQueueBacklog(redis: Redis, streamName: string, groupName: string) {
+async function measureWorker(redis: Redis, heartbeatKey: string) {
+  try {
+    const raw = await redis.get(heartbeatKey);
+    if (!raw) return { ok: false, consumer: null, lastSeenAt: null };
+    const beat = JSON.parse(raw) as { consumer?: string; at?: string };
+    return { ok: true, consumer: beat.consumer ?? null, lastSeenAt: beat.at ?? null };
+  } catch {
+    return { ok: false, consumer: null, lastSeenAt: null };
+  }
+}
+
+export async function measureQueueState(redis: Redis, streamName: string, groupName: string, now = Date.now()) {
+  const group = await readGroup(redis, streamName, groupName);
+  if (group === null) return { depth: 0, oldestAgeMs: 0 };
+
+  const depth = (group && backlogFromGroup(group)) ?? Number(await redis.xlen(streamName));
+  if (depth <= 0) return { depth, oldestAgeMs: 0 };
+
+  const oldest: number[] = [];
+  if (group) {
+    const summary = (await redis.xpending(streamName, groupName)) as unknown[];
+    if (Number(summary[0]) > 0 && typeof summary[1] === "string") oldest.push(streamIdMs(summary[1]));
+  }
+
+  // First entry the group has not been handed yet; with no group, the whole stream is unread.
+  const lastDelivered = group ? readRedisField(group, "last-delivered-id") : undefined;
+  const start = typeof lastDelivered === "string" ? `(${lastDelivered}` : "-";
+  const unread = (await redis.xrange(streamName, start, "+", "COUNT", 1)) as Array<[string, string[]]>;
+  if (unread[0]) oldest.push(streamIdMs(unread[0][0]));
+
+  return { depth, oldestAgeMs: oldest.length > 0 ? Math.max(0, now - Math.min(...oldest)) : 0 };
+}
+
+function streamIdMs(id: string) {
+  return Number(id.split("-")[0]);
+}
+
+/** The consumer group's XINFO entry, undefined if the group is missing, null if the stream is. */
+async function readGroup(redis: Redis, streamName: string, groupName: string) {
   try {
     const groups = (await redis.xinfo("GROUPS", streamName)) as unknown[];
-    const group =
-      readRedisField(groups, "name") === groupName
-        ? groups
-        : groups.find((entry) => readRedisField(entry, "name") === groupName);
-    if (!group) return Number(await redis.xlen(streamName));
-
-    const lag = readRedisNumberField(group, "lag");
-    const pending = readRedisNumberField(group, "pending");
-    if (lag >= 0 && pending >= 0) return lag + pending;
-    if (lag >= 0) return lag;
-    if (pending >= 0) return pending;
-    return Number(await redis.xlen(streamName));
+    return readRedisField(groups, "name") === groupName
+      ? groups
+      : groups.find((entry) => readRedisField(entry, "name") === groupName);
   } catch (error) {
-    if (error instanceof Error && error.message.includes("ERR no such key")) return 0;
+    if (error instanceof Error && error.message.includes("ERR no such key")) return null;
     throw error;
   }
+}
+
+function backlogFromGroup(group: unknown) {
+  const lag = readRedisNumberField(group, "lag");
+  const pending = readRedisNumberField(group, "pending");
+  if (lag >= 0 && pending >= 0) return lag + pending;
+  if (lag >= 0) return lag;
+  if (pending >= 0) return pending;
+  return undefined;
 }
 
 function readRedisField(entry: unknown, field: string) {
