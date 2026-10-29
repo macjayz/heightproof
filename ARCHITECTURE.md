@@ -513,14 +513,22 @@ Without it, an idle client killed by a Postgres restart or failover is an unhand
 and exits the process. Compose also sets `restart: unless-stopped` on `api`, `worker` and
 `dashboard` as a second line of defence.
 
-**Operational visibility.** `GET /ready` (`apps/api/src/observability.ts`) answers `503` with
-`status: "degraded"` when any of three checks fails: the database round trip; the queue, which
-fails when the oldest unacked or unread message is older than `HEIGHTPROOF_MAX_QUEUE_AGE_MS`
-(default 60s) — age rather than depth, since a burst that drains is healthy and a stuck message is
-not; and the worker, which fails when no worker has refreshed the `heightproof:events:heartbeat`
-key within its TTL (default 30s). `GET /metrics` exports `heightproof_queue_depth` and
-`heightproof_queue_oldest_age_seconds`. Note that API keys other than the dev fallback key are
-resolved against Postgres, so project-key ingestion returns `500` while the database is down.
+**Operational visibility.** Two health endpoints answer different questions, and both return
+`503` when their check fails (`apps/api/src/observability.ts`):
+
+- `GET /ready` — can this API process serve? Fails when Postgres (needed to resolve API keys) or
+  Redis (needed to enqueue) is unreachable. This is what a load balancer or Kubernetes readiness
+  probe should use. It deliberately ignores the worker: a backlog that pulled API pods out of
+  rotation would turn a slow worker into an ingestion outage.
+- `GET /health/pipeline` — are events being processed? Fails when the oldest unacked or unread
+  message is older than `HEIGHTPROOF_MAX_QUEUE_AGE_MS` (default 60s; age rather than depth, since
+  a burst that drains is healthy and a stuck message is not), or when no worker has refreshed the
+  `heightproof:events:heartbeat` key within its TTL (default 30s). Point alerting here.
+
+Both return the same body: `status` (API readiness), `pipeline` (`healthy`/`stalled`) and every
+check. `GET /metrics` exports `heightproof_queue_depth` and `heightproof_queue_oldest_age_seconds`.
+Note that API keys other than the dev fallback key are resolved against Postgres, so project-key
+ingestion returns `500` while the database is down.
 
 ## 12. Extensibility
 

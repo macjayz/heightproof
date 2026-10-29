@@ -81,18 +81,28 @@ export async function buildServer() {
     metrics.responseBuckets[bucket] = (metrics.responseBuckets[bucket] ?? 0) + 1;
   });
 
-  app.get("/health", async () => ({ ok: true }));
-  app.get("/ready", async (_request, reply) => {
-    const readiness = await buildReadiness(pool, redis, {
-      streamName: config.streamName,
-      groupName: config.groupName,
-      heartbeatKey: config.workerHeartbeatKey,
-      maxQueueAgeMs: config.maxQueueAgeMs
-    });
-    // 503 lets orchestrators and uptime probes act on "degraded" without parsing the body.
+  // Probes and scrapes are exempt from the per-IP rate limit: a load balancer probing from the
+  // same address as heavy SDK traffic must not be throttled into marking the API down.
+  const unlimited = { config: { rateLimit: false } };
+
+  app.get("/health", unlimited, async () => ({ ok: true }));
+  const readinessTarget = {
+    streamName: config.streamName,
+    groupName: config.groupName,
+    heartbeatKey: config.workerHeartbeatKey,
+    maxQueueAgeMs: config.maxQueueAgeMs
+  };
+  // Both answer 503 when their check fails, so probes and uptime monitors need not parse the body.
+  // /ready gates traffic to this API process; /health/pipeline is for alerting on the worker.
+  app.get("/ready", unlimited, async (_request, reply) => {
+    const readiness = await buildReadiness(pool, redis, readinessTarget);
     return reply.code(readiness.status === "ready" ? 200 : 503).send(readiness);
   });
-  app.get("/metrics", async (_request, reply) => {
+  app.get("/health/pipeline", unlimited, async (_request, reply) => {
+    const readiness = await buildReadiness(pool, redis, readinessTarget);
+    return reply.code(readiness.pipeline === "healthy" ? 200 : 503).send(readiness);
+  });
+  app.get("/metrics", unlimited, async (_request, reply) => {
     const snapshot = await buildMetricsSnapshot(metrics, pool, redis, config.streamName, config.groupName, liveHub);
     reply.header("content-type", "text/plain; version=0.0.4").send(toPrometheus(snapshot));
   });

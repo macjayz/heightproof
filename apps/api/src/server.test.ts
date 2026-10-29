@@ -218,6 +218,19 @@ describe("api server", () => {
     await app.close();
   });
 
+  it("keeps health checks out of the per-IP rate limit", async () => {
+    const { app } = await buildServer();
+    // Exhaust the 600-per-minute budget from one address, as heavy SDK traffic behind one NAT would.
+    for (let i = 0; i < 600; i++) await app.inject({ method: "GET", url: "/v1/analytics/requests?limit=1" });
+
+    const limited = await app.inject({ method: "GET", url: "/v1/analytics/requests?limit=1" });
+    const health = await app.inject({ method: "GET", url: "/health" });
+
+    expect(limited.statusCode).toBe(429);
+    expect(health.statusCode).toBe(200);
+    await app.close();
+  });
+
   it("adds request ids to responses", async () => {
     const { app } = await buildServer();
     const response = await app.inject({ method: "GET", url: "/health" });
