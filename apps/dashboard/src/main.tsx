@@ -68,9 +68,11 @@ type IncidentStatus = "open" | "acknowledged" | "resolved" | "ignored";
 
 type Readiness = {
   status: "ready" | "degraded";
+  pipeline?: "healthy" | "stalled";
   checks: {
     database: { ok: boolean; latencyMs: number };
-    queue: { ok: boolean; latencyMs: number; depth: number };
+    queue: { ok: boolean; reachable?: boolean; latencyMs: number; depth: number; oldestAgeMs?: number };
+    worker?: { ok: boolean; consumer: string | null; lastSeenAt: string | null };
   };
 };
 
@@ -398,7 +400,8 @@ function App() {
         if (
           !overviewResponse.ok ||
           !incidentResponse.ok ||
-          !readinessResponse.ok ||
+          // /ready answers 503 with a full body when degraded; that is data to show, not an outage.
+          (!readinessResponse.ok && readinessResponse.status !== 503) ||
           !systemResponse.ok ||
           !apiKeysResponse.ok ||
           !alertDestinationsResponse.ok ||

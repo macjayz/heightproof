@@ -6,7 +6,14 @@ import { ApiConfig } from "./config.js";
 const { Pool } = pg;
 
 export function createPool(config: ApiConfig) {
-  return new Pool({ connectionString: config.databaseUrl });
+  const pool = new Pool({ connectionString: config.databaseUrl, application_name: "heightproof-api" });
+  // pg-pool re-emits errors from idle clients (e.g. Postgres restarting). Without a listener
+  // Node treats that as an unhandled 'error' event and exits the API, taking ingestion down
+  // with it even though ingestion only needs Redis. The broken client is already discarded.
+  pool.on("error", (error) => {
+    console.error(JSON.stringify({ level: "error", msg: "postgres idle client error", error: error.message }));
+  });
+  return pool;
 }
 
 export async function ensureBootstrapUser(
