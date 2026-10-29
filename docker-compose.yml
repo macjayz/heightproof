@@ -83,5 +83,24 @@ services:
     depends_on:
       - api
 
+  # RPC reliability study: polls public mainnet endpoints through @heightproof/web3 with
+  # cross-provider verification. Opt-in: docker compose --profile study up -d
+  # Report: docker compose --profile study run --rm study npm run study:report
+  study:
+    profiles: ["study"]
+    build:
+      context: .
+      dockerfile: infra/study.Dockerfile
+    restart: unless-stopped
+    environment:
+      HEIGHTPROOF_ENDPOINT: http://api:8080
+      DATABASE_URL: postgres://heightproof:heightproof@postgres:5432/heightproof
+      STUDY_STATE: /data/state.json
+    volumes:
+      - heightproof-study:/data
+    depends_on:
+      - api
+
 volumes:
   heightproof-postgres:
+  heightproof-study:
