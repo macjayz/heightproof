@@ -1,0 +1,16 @@
+apiVersion: v2
+name: heightproof
+description: Self-hosted EVM RPC reliability monitoring — API, worker, dashboard, and optional bundled Postgres and Redis.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/macjayz/heightproof
+sources:
+  - https://github.com/macjayz/heightproof
+keywords:
+  - ethereum
+  - json-rpc
+  - observability
+maintainers:
+  - name: Mangai Machen John
+    url: https://github.com/macjayz

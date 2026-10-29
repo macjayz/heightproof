@@ -1,0 +1,154 @@
+# Images are published to GHCR by .github/workflows/release.yml. An empty tag uses the chart appVersion.
+image:
+  registry: ghcr.io
+  repository: macjayz/heightproof
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# Secrets. Leave empty to have the chart generate them once and keep them across upgrades,
+# or point existingSecret at a Secret you manage (keys: heightproof-api-key, admin-password,
+# database-url).
+auth:
+  existingSecret: ""
+  apiKey: ""
+  adminEmail: owner@heightproof.local
+  adminPassword: ""
+
+# Demo conveniences mirrored from docker-compose.yml. Keep them off for anything public.
+demo:
+  allowDevFallbackKey: false
+  bootstrapUser: false
+  seedEvents: false
+
+queue:
+  streamName: heightproof:events
+  groupName: heightproof-workers
+
+# Applies infra/migrations (idempotent SQL) from an init container on API and worker pods,
+# serialised with a Postgres advisory lock so concurrent rollouts don't race.
+migrations:
+  enabled: true
+  image: postgres:16-alpine
+
+# The images declare USER node (non-numeric), so the UID must be explicit for runAsNonRoot to verify.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+api:
+  # The /live WebSocket hub is in-process, so with more than one replica a dashboard only sees
+  # live pushes for events ingested by the pod it is connected to. Polling views are unaffected.
+  replicaCount: 1
+  port: 8080
+  service:
+    type: ClusterIP
+    port: 8080
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { memory: 512Mi }
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
+  # Adds prometheus.io/* scrape annotations for the API's /metrics endpoint.
+  metrics:
+    podAnnotations: true
+  extraEnv: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+worker:
+  # Each pod joins the Redis consumer group under its own pod name, so replicas share the stream.
+  replicaCount: 1
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { memory: 512Mi }
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+  extraEnv: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+dashboard:
+  enabled: true
+  replicaCount: 1
+  port: 8080
+  service:
+    type: ClusterIP
+    port: 80
+  resources:
+    requests: { cpu: 25m, memory: 32Mi }
+    limits: { memory: 128Mi }
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Routes /v1, /live, /ready and /health to the API and everything else to the dashboard.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: heightproof.local
+  tls: []
+  #  - secretName: heightproof-tls
+  #    hosts: [heightproof.local]
+
+# Bundled single-node Postgres for evaluation. For production set enabled: false and supply
+# externalDatabase.url (or database-url in auth.existingSecret).
+postgresql:
+  enabled: true
+  image: postgres:16-alpine
+  username: heightproof
+  database: heightproof
+  password: ""
+  persistence:
+    size: 8Gi
+    storageClass: ""
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 1Gi }
+
+externalDatabase:
+  url: ""
+
+# Bundled Redis with append-only persistence so queued events survive a restart.
+redis:
+  enabled: true
+  image: redis:7-alpine
+  persistence:
+    size: 2Gi
+    storageClass: ""
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { memory: 256Mi }
+
+externalRedis:
+  url: ""
