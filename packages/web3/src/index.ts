@@ -216,7 +216,9 @@ class RpcRecorder {
         auth: {
           present: true,
           scheme: "RPC",
-          failed
+          // Only a rejected credential is an auth failure. Marking every failed call would add the
+          // auth_failure signal to ordinary RPC errors and inflate their threat score.
+          failed: outcome.statusCode === 401 || outcome.statusCode === 403
         }
       },
       response: {
