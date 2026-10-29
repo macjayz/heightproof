@@ -25,7 +25,10 @@ export async function runWorker(
   let lastAlertRuleEvalAt = 0;
 
   try {
-    await redis.xgroup("CREATE", config.streamName, config.groupName, "$", "MKSTREAM");
+    // Start from the beginning of the stream, not "$": the API can accept events before the first
+    // worker ever starts (a fresh install seeds demo data, or workers deploy after the API), and
+    // "$" would skip them forever. Only the very first worker creates the group.
+    await redis.xgroup("CREATE", config.streamName, config.groupName, "0", "MKSTREAM");
   } catch (error) {
     if (!(error instanceof Error) || !error.message.includes("BUSYGROUP")) throw error;
   }

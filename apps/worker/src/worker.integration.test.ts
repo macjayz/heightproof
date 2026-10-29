@@ -64,6 +64,21 @@ afterEach(async () => {
 });
 
 describe.skipIf(!enabled)("worker against real Redis and Postgres", () => {
+  it("processes events accepted before the first worker started", async () => {
+    const streamName = `it:${randomUUID()}`;
+    const id = `it-${randomUUID()}`;
+    const early = await runWorker({ streamName }, { blockMs: 100 });
+    await early.redis.del(streamName, `${streamName}:dlq`);
+    // The API enqueued this while no consumer group existed yet.
+    await early.redis.xadd(streamName, "*", "event", event(id));
+    await early.close();
+
+    const worker = await startWorker({ streamName });
+    await worker.tick();
+
+    expect(await persisted(worker, id)).toBe(1);
+  });
+
   it("dead-letters an unparseable message and keeps processing the rest", async () => {
     const worker = await startWorker();
     const id = `it-${randomUUID()}`;
