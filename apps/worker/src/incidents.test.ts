@@ -57,6 +57,27 @@ describe("incident fingerprinting", () => {
     expect(fingerprint?.key).toBe("demo:rpc_flooding:eth_getLogs");
   });
 
+  it("names rate limiting rather than the error-in-body symptom when a throttle fires both", () => {
+    // An explicit throttle arrives as a JSON-RPC error inside a 200, so D3 fires alongside D5.
+    const fingerprint = fingerprintIncident(
+      {
+        ...rpcEvent,
+        evmRpc: { method: "eth_getBalance", provider: "flaky", endpointHash: "endpoint-flaky" }
+      },
+      {
+        score: 50,
+        severity: "high",
+        signals: [
+          { name: "rpc_error_in_body", weight: 28, reason: "JSON-RPC error inside a 200" },
+          { name: "provider_throttling", weight: 22, reason: "Rate limited" }
+        ]
+      }
+    );
+
+    expect(fingerprint?.key).toBe("demo:provider_throttling:endpoint-flaky");
+    expect(fingerprint?.title).toBe("Rate limiting from flaky");
+  });
+
   it("prefers the rpc-specific category over the generic rate anomaly for the same flood", () => {
     // A flood of calls to one method from one IP always also trips the generic per-IP rate
     // check, since it's a strict subset of "all requests from this IP". The more specific

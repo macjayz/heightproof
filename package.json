@@ -8,6 +8,7 @@
     "build": "npm run build -w packages/shared && npm run build -w packages/sdk-node && npm run build -w packages/web3 && npm run build --workspaces --if-present",
     "dev": "concurrently \"npm run dev -w apps/api\" \"npm run dev -w apps/worker\" \"npm run dev -w apps/dashboard\"",
     "seed:demo": "tsx scripts/seed-demo-events.ts",
+    "demo:unreliable-provider": "tsx scripts/demo-unreliable-provider.ts",
     "lint": "eslint .",
     "test": "npm run test --workspaces --if-present",
     "test:integration": "npm run test:integration -w apps/worker",

@@ -155,12 +155,10 @@ the process does not exit. A signal stops the loop after the current batch is ac
      IP in the last minute, for the generic rate-anomaly signal) and `getWeb3ThreatContext()`
      (only populated when `kind === "evm_rpc"`; see below).
    - Calls `assessThreat()` (`packages/shared/src/index.ts`) to score the event.
-   - Persists the raw event via `persistEvent()` (`INSERT ... ON CONFLICT (id) DO NOTHING` into
-     `api_events`, so redelivery from Redis is idempotent).
-   - Calls `createIncidentIfNeeded()`, which fingerprints the event/assessment pair and
-     upserts an `incidents` row (see below).
-   - Calls `recordErrorGroup()`, which fingerprints any captured `error` and upserts an
-     `error_groups` row.
+   - Calls `recordEvent()`, which in **one transaction** inserts the event row (`INSERT ...
+     ON CONFLICT (id) DO NOTHING` into `api_events`), upserts its incident (see below) and its
+     error group. If the event row already existed, the event is a duplicate and nothing else is
+     written.
 3. Only after that whole span completes without throwing does the worker `XACK` the message. If
    it throws, the message stays in the pending entries list and `reclaim()` retries it (§11).
 
@@ -225,7 +223,7 @@ flowchart TD
     B -- "no" --> Z["XADD to heightproof:events:dlq\n+ XACK (one MULTI)"]
     B -- "yes" --> C["Gather scoring context:\nrecent IP request count,\nweb3 baseline stats (if evm_rpc)"]
     C --> D["assessThreat()\nadditive weighted signals"]
-    D --> E["persistEvent()\nINSERT api_events"]
+    D --> E["recordEvent(): one transaction\nINSERT api_events (skip rest if duplicate)"]
     E --> F{"score >= 25?"}
     F -- "no" --> G["recordErrorGroup()\nif event.error present"]
     F -- "yes" --> H["fingerprintIncident()\npriority-ordered signal match"]
@@ -490,14 +488,19 @@ dead-lettered with reason `max_deliveries_exceeded` instead of being retried for
 
 **At-least-once processing, not exactly-once.** Within `tick()`, `XACK` is only called after the
 per-message `withSpan("heightproof.worker.process_event", ...)` block completes without throwing —
-it's the last line of the loop body, after persistence, incident creation, and error-group
-recording. If any of those steps throws, the exception propagates out of `withSpan` (which records
-it and re-raises), the `XACK` call is skipped, and the message is reclaimed and retried as above. `persistEvent()`'s `INSERT ... ON CONFLICT (id) DO NOTHING` makes redelivered event rows
-idempotent on `api_events.id`; incident and error-group updates are aggregate upserts, so
-reprocessing the same event twice (a case that can't currently happen without a redelivery
-mechanism being added, per the gap above, but would need care if one were) would double-count
-`request_count` and `occurrences` — there's no per-message idempotency key for those aggregate
-tables today, and now that redelivery exists this can happen after a partial failure.
+it's the last line of the loop body, after `recordEvent()`. If that throws, the exception
+propagates out of `withSpan` (which records it and re-raises), the `XACK` call is skipped, and the
+message is reclaimed and retried as above.
+
+Delivery is at-least-once; the *effects* are exactly-once per event id. `recordEvent()` writes the
+event row, incident upsert and error-group upsert in one transaction, and treats an existing
+`api_events.id` as "already applied". So a message redelivered after a crash between commit and
+`XACK`, or an event the SDK re-sent after a timed-out batch, changes nothing (aggregates such as
+`request_count` and `occurrences` are not double-counted, and a resolved incident is not reopened
+by an old event); and a failure part way through rolls back all three writes, so the retry never
+finds an event stored without its incident. Alert deliveries are queued inside the same
+transaction, so a duplicate cannot send a second webhook either. Note the idempotency key is the
+SDK-generated event id: two genuinely separate events with the same id would be merged.
 
 **Alert delivery retries.** `claimAlertDeliveries()`'s `FOR UPDATE SKIP LOCKED` claim (§5) is a
 separate reliability mechanism from the Redis consumer group — it's how multiple worker processes
