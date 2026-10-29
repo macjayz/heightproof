@@ -96,6 +96,7 @@ describe("api observability", () => {
       const readiness = await buildReadiness(pool as never, redisWith({}) as never, target, now);
 
       expect(readiness.status).toBe("ready");
+      expect(readiness.pipeline).toBe("healthy");
       expect(readiness.checks.queue).toMatchObject({ ok: true, depth: 0, oldestAgeMs: 0 });
       expect(readiness.checks.worker).toMatchObject({ ok: true, consumer: "worker-1" });
     });
@@ -104,23 +105,35 @@ describe("api observability", () => {
       const redis = redisWith({ unreadSinceMs: now - 5_000 });
       const readiness = await buildReadiness(pool as never, redis as never, target, now);
 
-      expect(readiness.status).toBe("ready");
+      expect(readiness.pipeline).toBe("healthy");
       expect(readiness.checks.queue.oldestAgeMs).toBe(5_000);
     });
 
-    it("degrades when a message has been stranded in the pending list", async () => {
+    it("reports a stalled pipeline, but stays ready, when a message is stranded", async () => {
       const redis = redisWith({ pendingSinceMs: now - 120_000, unreadSinceMs: now - 1_000 });
       const readiness = await buildReadiness(pool as never, redis as never, target, now);
 
-      expect(readiness.status).toBe("degraded");
+      // The API can still accept events; taking it out of rotation would only add an outage.
+      expect(readiness.status).toBe("ready");
+      expect(readiness.pipeline).toBe("stalled");
       expect(readiness.checks.queue).toMatchObject({ ok: false, depth: 2, oldestAgeMs: 120_000 });
     });
 
-    it("degrades when no worker heartbeat is present", async () => {
+    it("reports a stalled pipeline when no worker heartbeat is present", async () => {
       const readiness = await buildReadiness(pool as never, redisWith({ heartbeat: null }) as never, target, now);
 
-      expect(readiness.status).toBe("degraded");
+      expect(readiness.status).toBe("ready");
+      expect(readiness.pipeline).toBe("stalled");
       expect(readiness.checks.worker.ok).toBe(false);
+    });
+
+    it("is not ready when Redis cannot be reached, since ingestion cannot enqueue", async () => {
+      const down = vi.fn().mockRejectedValue(new Error("connect ECONNREFUSED"));
+      const redis = { xinfo: down, xlen: down, xpending: down, xrange: down, get: down };
+      const readiness = await buildReadiness(pool as never, redis as never, target, now);
+
+      expect(readiness.status).toBe("degraded");
+      expect(readiness.checks.queue).toMatchObject({ reachable: false });
     });
   });
 });

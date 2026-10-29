@@ -40,7 +40,13 @@ export async function buildReadiness(pool: pg.Pool, redis: Redis, target: Readin
   ]);
 
   return {
-    status: database.ok && queue.ok && worker.ok ? "ready" : "degraded",
+    // Whether this API process can do its job: authenticate (Postgres) and enqueue (Redis). This
+    // is what load balancers and Kubernetes act on, so it must not include the worker: a backlog
+    // that pulled API pods out of rotation would turn a slow worker into an ingestion outage.
+    status: database.ok && queue.reachable ? "ready" : "degraded",
+    // Whether events are being processed: no message stuck past the age limit, and a live worker.
+    // Served on its own by /health/pipeline, for alerting rather than routing.
+    pipeline: queue.ok && worker.ok ? "healthy" : "stalled",
     checks: {
       database,
       queue,
@@ -132,12 +138,13 @@ async function measureQueue(redis: Redis, target: ReadinessTarget, now: number) 
     // unprocessed message is what climbs when the worker is dead, stuck, or messages are stranded.
     return {
       ok: oldestAgeMs <= target.maxQueueAgeMs,
+      reachable: true,
       latencyMs: Math.round(performance.now() - started),
       depth,
       oldestAgeMs
     };
   } catch {
-    return { ok: false, latencyMs: -1, depth: -1, oldestAgeMs: -1 };
+    return { ok: false, reachable: false, latencyMs: -1, depth: -1, oldestAgeMs: -1 };
   }
 }
 

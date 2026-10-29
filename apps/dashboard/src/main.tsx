@@ -68,9 +68,10 @@ type IncidentStatus = "open" | "acknowledged" | "resolved" | "ignored";
 
 type Readiness = {
   status: "ready" | "degraded";
+  pipeline?: "healthy" | "stalled";
   checks: {
     database: { ok: boolean; latencyMs: number };
-    queue: { ok: boolean; latencyMs: number; depth: number; oldestAgeMs?: number };
+    queue: { ok: boolean; reachable?: boolean; latencyMs: number; depth: number; oldestAgeMs?: number };
     worker?: { ok: boolean; consumer: string | null; lastSeenAt: string | null };
   };
 };
