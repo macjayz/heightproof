@@ -44,7 +44,7 @@ describe("web3 sdk", () => {
     });
   });
 
-  it("marks failed json-rpc calls as failed auth-style rpc events", async () => {
+  it("records a failed call as a 500 without calling it an auth failure", async () => {
     captured.length = 0;
     const provider = wrapEip1193Provider(
       {
@@ -62,7 +62,7 @@ describe("web3 sdk", () => {
     await expect(provider.request({ method: "eth_sendRawTransaction", params: [] })).rejects.toThrow("provider failed");
     expect(captured[0]).toMatchObject({
       evmRpc: { method: "eth_sendRawTransaction" },
-      request: { auth: { failed: true } },
+      request: { auth: { failed: false } },
       response: { statusCode: 500 }
     });
   });

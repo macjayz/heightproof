@@ -1,12 +1,49 @@
 {
   "name": "@heightproof/web3",
   "version": "0.1.0",
+  "description": "Detect EVM RPC failures that return 200 OK: wrap an EIP-1193 provider or viem transport and report every call to Heightproof.",
+  "keywords": [
+    "heightproof",
+    "ethereum",
+    "evm",
+    "json-rpc",
+    "rpc",
+    "viem",
+    "eip-1193",
+    "monitoring"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/macjayz/heightproof.git",
+    "directory": "packages/web3"
+  },
+  "homepage": "https://github.com/macjayz/heightproof#readme",
+  "bugs": "https://github.com/macjayz/heightproof/issues",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@heightproof/sdk-node": "0.1.0",

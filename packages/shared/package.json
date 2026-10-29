@@ -1,12 +1,45 @@
 {
   "name": "@heightproof/shared",
   "version": "0.1.0",
+  "description": "Shared event schema, JSON-RPC normalization and reliability detectors for Heightproof.",
+  "keywords": [
+    "heightproof",
+    "ethereum",
+    "json-rpc",
+    "observability"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/macjayz/heightproof.git",
+    "directory": "packages/shared"
+  },
+  "homepage": "https://github.com/macjayz/heightproof#readme",
+  "bugs": "https://github.com/macjayz/heightproof/issues",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.1",

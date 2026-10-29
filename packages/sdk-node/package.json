@@ -1,18 +1,56 @@
 {
   "name": "@heightproof/sdk-node",
   "version": "0.1.0",
+  "description": "Heightproof SDK for Node.js: batched, non-blocking event delivery and Express middleware.",
+  "keywords": [
+    "heightproof",
+    "express",
+    "observability",
+    "apm"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/macjayz/heightproof.git",
+    "directory": "packages/sdk-node"
+  },
+  "homepage": "https://github.com/macjayz/heightproof#readme",
+  "bugs": "https://github.com/macjayz/heightproof/issues",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@heightproof/shared": "0.1.0"
   },
   "peerDependencies": {
     "express": ">=4"
+  },
+  "peerDependenciesMeta": {
+    "express": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/express": "^4.17.21",

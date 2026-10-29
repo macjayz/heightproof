@@ -4,7 +4,7 @@ Deploys the Heightproof API, worker and dashboard, with optional bundled Postgre
 
 ```text
                Ingress (optional)
-   /v1 /live /ready /health[/pipeline] │ /
+        /v1 /live /ready /health │ /
                  ┌───────────────┴──────────────┐
                  ▼                              ▼
          api (Deployment) ◄──── proxy ──── dashboard (nginx, static build)
@@ -67,10 +67,12 @@ when the bundled Postgres is off.
 - **The API is stateless except `/live`.** The WebSocket hub is in-process, so with several API
   replicas a dashboard only gets live pushes for events ingested by its own pod. Polled views are
   correct at any replica count. Fanning out over Redis pub/sub would remove this limitation.
-- **Probes.** Liveness uses `/health`; readiness uses `/ready`, which answers 503 when the pod
-  can't reach Postgres or Redis but ignores worker backlog, so a slow worker never takes ingestion
-  down. Alert on `/health/pipeline` (503 when events stall or no worker heartbeat) and scrape
-  `/metrics`; the API pods carry `prometheus.io/*` annotations.
+- **Probes.** Startup and liveness use `/health` (the process is up). Readiness uses `/ready`, which
+  answers 503 when the pod cannot reach Postgres or Redis. It deliberately ignores the worker's
+  backlog, so a slow worker never takes API pods out of rotation. Alert on `/health/pipeline`
+  instead: it answers 503 when the oldest unprocessed event is over 60s old or no worker heartbeat
+  is present. Queue depth and backlog age are also on `/metrics`, and the pods carry
+  `prometheus.io/*` scrape annotations.
 - **Hardening.** All pods run as non-root with `RuntimeDefault` seccomp, no capabilities and no
   privilege escalation. The app containers also have a read-only root filesystem, and the service
   account token is not mounted.
@@ -80,6 +82,6 @@ when the bundled Postgres is off.
 ## Verify
 
 ```bash
-helm test hp -n heightproof     # API readiness, pipeline health, dashboard, and dashboard → API proxy
+helm test hp -n heightproof     # API health/readiness, dashboard, and dashboard → API proxy
 deploy/kind/e2e.sh              # full build + install + pipeline check on a local kind cluster
 ```
