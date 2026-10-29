@@ -1,0 +1,17 @@
+# Values for the kind end-to-end test: locally built images, demo data on, small footprint.
+image:
+  registry: heightproof.local
+  repository: e2e
+  tag: e2e
+  pullPolicy: Never
+demo:
+  bootstrapUser: true
+  seedEvents: true
+worker:
+  replicaCount: 2
+postgresql:
+  persistence:
+    size: 1Gi
+redis:
+  persistence:
+    size: 512Mi

@@ -1,0 +1,70 @@
+{{- $c := dict "ctx" $ "component" "worker" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "heightproof.fullname" . }}-worker
+  labels:
+    {{- include "heightproof.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  {{- if not .Values.worker.autoscaling.enabled }}
+  replicas: {{ .Values.worker.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "heightproof.selectorLabels" $c | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "heightproof.selectorLabels" $c | nindent 8 }}
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "heightproof.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      # Drains in-flight stream entries on SIGTERM (worker.close()) before exiting.
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        {{- include "heightproof.migrateInitContainer" . | nindent 8 }}
+      containers:
+        - name: worker
+          image: {{ include "heightproof.image" $c }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          env:
+            {{- include "heightproof.sharedEnv" . | nindent 12 }}
+            # The default consumer name is worker-<pid>, and PID is 1 in every container, so
+            # replicas would collide in the consumer group. The pod name is unique.
+            - name: HEIGHTPROOF_CONSUMER
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            {{- with .Values.worker.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        {{- include "heightproof.tmpVolume" . | nindent 8 }}
+        {{- include "heightproof.migrationsVolume" . | nindent 8 }}
+      {{- with .Values.worker.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

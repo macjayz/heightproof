@@ -137,6 +137,25 @@ your own account. The `demo` project is seeded with realistic sample traffic on 
 
 The dashboard runs at `http://localhost:5173`, the API at `http://localhost:8080`.
 
+### On Kubernetes
+
+A Helm chart lives in [`deploy/helm/heightproof`](deploy/helm/heightproof). Images are published to
+GHCR on every push to `main`, and tagged releases also publish the chart as an OCI artifact.
+
+```bash
+helm install hp oci://ghcr.io/macjayz/charts/heightproof --version <version> \
+  --namespace heightproof --create-namespace
+```
+
+To try it from a checkout on a local [kind](https://kind.sigs.k8s.io) cluster (this is also what CI runs):
+
+```bash
+deploy/kind/e2e.sh
+```
+
+See the [chart README](deploy/helm/heightproof/README.md) for production values, external
+Postgres and Redis, ingress, and scaling notes.
+
 ## How it works
 
 ```text
