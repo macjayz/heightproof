@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import pg from "pg";
 import type { HeightproofEvent, ThreatAssessment } from "@heightproof/shared";
 import { afterEach, describe, expect, it } from "vitest";
-import { createIncidentIfNeeded, persistEvent } from "./db.js";
+import { createIncidentIfNeeded, getStaleHeadContext, persistEvent } from "./db.js";
 import { runWorker } from "./worker.js";
 
 /**
@@ -229,6 +229,238 @@ describe.skipIf(!enabled)("worker against real Redis and Postgres", () => {
       expect(await incidentsFor(worker, projectId)).toEqual([
         { status: "ignored", request_count: 1 }
       ]);
+    });
+  });
+
+  describe("duplicates and retries", () => {
+    // Scores 26 (sensitive_rpc), so it opens an incident, and carries an error, so it opens an
+    // error group: every derived write the worker makes for one event.
+    function sensitiveRpcWithError(projectId: string, id = `it-${randomUUID()}`) {
+      return JSON.stringify({
+        id,
+        projectId,
+        serviceName: "integration",
+        timestamp: new Date().toISOString(),
+        kind: "evm_rpc",
+        request: { method: "POST", path: "/", ip: "203.0.113.60" },
+        response: { statusCode: 200, latencyMs: 30 },
+        evmRpc: { method: "eth_sendRawTransaction", chainId: "1", provider: "integration" },
+        error: { type: "RpcError", message: "nonce too low" }
+      });
+    }
+
+    // error_groups references projects, so these tests need a real project row.
+    async function newProject(worker: Worker) {
+      const projectId = `it-${randomUUID()}`;
+      await worker.pool.query(
+        `with org as (insert into organizations (name) values ($1) returning id)
+         insert into projects (id, organization_id, name) select $1, id, $1 from org`,
+        [projectId]
+      );
+      return projectId;
+    }
+
+    async function effects(worker: Worker, projectId: string) {
+      const [events, incidents, errors] = await Promise.all([
+        worker.pool.query(`select count(*)::int as n from api_events where project_id = $1`, [
+          projectId
+        ]),
+        worker.pool.query(
+          `select coalesce(sum(request_count), 0)::int as n from incidents where project_id = $1`,
+          [projectId]
+        ),
+        worker.pool.query(
+          `select coalesce(sum(occurrences), 0)::int as n from error_groups where project_id = $1`,
+          [projectId]
+        )
+      ]);
+      return {
+        events: events.rows[0].n,
+        incidentHits: incidents.rows[0].n,
+        errorHits: errors.rows[0].n
+      };
+    }
+
+    it("applies an event sent twice exactly once", async () => {
+      const worker = await startWorker();
+      const projectId = await newProject(worker);
+      const payload = sensitiveRpcWithError(projectId);
+      // The SDK retries a batch whose 202 it never saw, so the same event reaches the stream twice.
+      await worker.redis.xadd(worker.config.streamName, "*", "event", payload);
+      await worker.redis.xadd(worker.config.streamName, "*", "event", payload);
+
+      await worker.tick();
+
+      expect(await effects(worker, projectId)).toEqual({
+        events: 1,
+        incidentHits: 1,
+        errorHits: 1
+      });
+      expect(await pendingCount(worker)).toBe(0);
+    });
+
+    it("rolls back a partly processed event and applies it once on retry", async () => {
+      const worker = await startWorker({ reclaimMinIdleMs: 50 });
+      const projectId = await newProject(worker);
+      const trigger = `fail_${randomUUID().replaceAll("-", "")}`;
+      // Fail the last write (error group) after the event row and incident were already written.
+      await worker.pool.query(`
+        create function ${trigger}() returns trigger language plpgsql as $$
+        begin
+          if new.project_id = '${projectId}' then raise exception 'injected failure'; end if;
+          return new;
+        end $$;
+        create trigger ${trigger} before insert on error_groups
+          for each row execute function ${trigger}();
+      `);
+      await worker.redis.xadd(
+        worker.config.streamName,
+        "*",
+        "event",
+        sensitiveRpcWithError(projectId)
+      );
+
+      try {
+        await expect(worker.tick()).rejects.toThrow("injected failure");
+        expect(await effects(worker, projectId)).toEqual({
+          events: 0,
+          incidentHits: 0,
+          errorHits: 0
+        });
+        expect(await pendingCount(worker)).toBe(1);
+      } finally {
+        await worker.pool.query(
+          `drop trigger ${trigger} on error_groups; drop function ${trigger}();`
+        );
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(await worker.reclaim()).toBe(1);
+
+      expect(await effects(worker, projectId)).toEqual({
+        events: 1,
+        incidentHits: 1,
+        errorHits: 1
+      });
+      expect(await pendingCount(worker)).toBe(0);
+    });
+
+    it("does not reopen a resolved incident when an old event is redelivered", async () => {
+      const worker = await startWorker();
+      const projectId = await newProject(worker);
+      const payload = sensitiveRpcWithError(projectId);
+      await worker.redis.xadd(worker.config.streamName, "*", "event", payload);
+      await worker.tick();
+      await worker.pool.query(`update incidents set status = 'resolved' where project_id = $1`, [
+        projectId
+      ]);
+
+      await worker.redis.xadd(worker.config.streamName, "*", "event", payload);
+      await worker.tick();
+
+      const incident = await worker.pool.query(
+        `select status, request_count from incidents where project_id = $1`,
+        [projectId]
+      );
+      expect(incident.rows).toEqual([{ status: "resolved", request_count: 1 }]);
+    });
+  });
+
+  describe("stale-head context", () => {
+    const noSignal: ThreatAssessment = { score: 0, severity: "low", signals: [] };
+
+    async function observeHead(
+      worker: Worker,
+      projectId: string,
+      endpointHash: string,
+      block: number,
+      at: Date,
+      shadowOfTraceId?: string
+    ) {
+      await persistEvent(
+        worker.pool,
+        {
+          id: `it-${randomUUID()}`,
+          projectId,
+          serviceName: "integration",
+          environment: "test",
+          timestamp: at.toISOString(),
+          kind: "evm_rpc",
+          request: {
+            method: "POST",
+            path: "/rpc",
+            headers: {},
+            query: {},
+            auth: { present: true, failed: false }
+          },
+          response: { statusCode: 200, latencyMs: 5 },
+          evmRpc: {
+            method: "eth_blockNumber",
+            chainId: "1",
+            endpointHash,
+            blockNumber: String(block),
+            shadowOfTraceId
+          }
+        },
+        noSignal
+      );
+    }
+
+    it("judges lag only against heads observed up to the event, so late batches do not read as lag", async () => {
+      const worker = await startWorker();
+      const projectId = `it-${randomUUID()}`;
+      const base = Date.now() - 60_000;
+      for (let i = 0; i < 3; i++)
+        await observeHead(worker, projectId, "endpoint-b", 1_000 + i, new Date(base + i * 1_000));
+      // Endpoint A's batch is stored first but describes a later moment.
+      await observeHead(worker, projectId, "endpoint-a", 1_010, new Date(base + 10_000));
+
+      const asOfB = await getStaleHeadContext(
+        worker.pool,
+        projectId,
+        "1",
+        "endpoint-b",
+        new Date(base + 2_000).toISOString()
+      );
+      const later = await getStaleHeadContext(
+        worker.pool,
+        projectId,
+        "1",
+        "endpoint-b",
+        new Date(base + 10_000).toISOString()
+      );
+
+      expect(asOfB).toMatchObject({ endpointHeadBlockNumber: 1_002, chainHeadBlockNumber: 1_002 });
+      expect(later).toMatchObject({ endpointHeadBlockNumber: 1_002, chainHeadBlockNumber: 1_010 });
+    });
+
+    it("ignores verification observations pinned behind the head", async () => {
+      const worker = await startWorker();
+      const projectId = `it-${randomUUID()}`;
+      const base = Date.now() - 60_000;
+      for (let i = 0; i < 3; i++)
+        await observeHead(worker, projectId, "endpoint-b", 1_000 + i, new Date(base + i * 1_000));
+      await observeHead(
+        worker,
+        projectId,
+        "endpoint-b",
+        900,
+        new Date(base + 3_000),
+        "0123456789abcdef0123456789abcdef"
+      );
+
+      const context = await getStaleHeadContext(
+        worker.pool,
+        projectId,
+        "1",
+        "endpoint-b",
+        new Date(base + 5_000).toISOString()
+      );
+
+      expect(context).toMatchObject({
+        endpointHeadBlockNumber: 1_002,
+        endpointHeadObservations: 3
+      });
     });
   });
 });

@@ -5,12 +5,10 @@ import { evaluateAlertRules } from "./alertRules.js";
 import { loadConfig, WorkerConfig } from "./config.js";
 import {
   countRecentIpRequests,
-  createIncidentIfNeeded,
   createPool,
   getWeb3ThreatContext,
-  persistEvent,
   raiseAlertRuleIncident,
-  recordErrorGroup
+  recordEvent
 } from "./db.js";
 import { claimAbandoned, deadLetter, parseStreamMessage, StreamMessage } from "./stream.js";
 
@@ -58,9 +56,8 @@ export async function runWorker(
             getWeb3ThreatContext(pool, event)
           ]);
           const assessment = assessThreat(event, recentIpRequests, web3Context);
-          await persistEvent(pool, event, assessment);
-          await createIncidentIfNeeded(pool, event, assessment);
-          await recordErrorGroup(pool, event);
+          // Idempotent on event.id: a redelivered or re-sent event is acked without side effects.
+          await recordEvent(pool, event, assessment);
         }
       );
 

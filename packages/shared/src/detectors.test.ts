@@ -64,6 +64,23 @@ describe("D1 stale head", () => {
     expect(signals).toEqual([]);
   });
 
+  it("ignores verification calls, which are pinned behind the head on purpose", () => {
+    const signals = detectStaleHead(rpcEvent({ shadowOfTraceId: "0123456789abcdef0123456789abcdef" }), {
+      ...observed,
+      endpointHeadBlockNumber: 1_000,
+      chainHeadBlockNumber: 1_032
+    });
+
+    expect(signals).toEqual([]);
+  });
+
+  it("leaves failed calls to the error and throttling detectors", () => {
+    const behind = { ...observed, endpointHeadBlockNumber: 1_000, chainHeadBlockNumber: 1_032 };
+
+    expect(detectStaleHead(rpcEvent({ resultShape: "error_in_body", rpcErrorCode: -32005 }), behind)).toEqual([]);
+    expect(detectStaleHead({ ...rpcEvent(), response: { statusCode: 503, latencyMs: 20 } }, behind)).toEqual([]);
+  });
+
   it("fires when a head stops advancing while the provider keeps answering", () => {
     // Mainnet block time is 12s, so the default 3x multiplier allows 36s.
     const signals = detectStaleHead(rpcEvent(), { ...observed, endpointHeadStalledMs: 40_000 });
