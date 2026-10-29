@@ -86,6 +86,25 @@ export function fingerprintIncident(
     };
   }
 
+  // More specific than provider_degradation, which reports the latency half of the same
+  // symptom, and than rpc_error_in_body: an explicit throttle arrives as a JSON-RPC error in a
+  // 200, so both fire, and "rate limiting" names the cause where "errors in 200s" does not.
+  if (signalNames.has("provider_throttling") || signalNames.has("soft_throttling")) {
+    const provider = providerLabel(event);
+    const soft = signalNames.has("soft_throttling") && !signalNames.has("provider_throttling");
+    return {
+      key: `${event.projectId}:${soft ? "soft_throttling" : "provider_throttling"}:${
+        event.evmRpc?.endpointHash ?? provider
+      }`,
+      title: soft ? `Suspected silent throttling on ${provider}` : `Rate limiting from ${provider}`,
+      description: soft
+        ? "Latency and answer quality degraded together while every response still reported success."
+        : "This provider is rate limiting an abnormal share of recent requests.",
+      affectedEndpoint: endpoint,
+      attackerIp: event.request.ip
+    };
+  }
+
   if (signalNames.has("rpc_error_in_body")) {
     const method = event.evmRpc?.method ?? endpoint;
     return {
@@ -143,23 +162,6 @@ export function fingerprintIncident(
     };
   }
 
-  // More specific than provider_degradation, which reports the latency half of the same
-  // symptom, so it is checked first.
-  if (signalNames.has("provider_throttling") || signalNames.has("soft_throttling")) {
-    const provider = providerLabel(event);
-    const soft = signalNames.has("soft_throttling") && !signalNames.has("provider_throttling");
-    return {
-      key: `${event.projectId}:${soft ? "soft_throttling" : "provider_throttling"}:${
-        event.evmRpc?.endpointHash ?? provider
-      }`,
-      title: soft ? `Suspected silent throttling on ${provider}` : `Rate limiting from ${provider}`,
-      description: soft
-        ? "Latency and answer quality degraded together while every response still reported success."
-        : "This provider is rate limiting an abnormal share of recent requests.",
-      affectedEndpoint: endpoint,
-      attackerIp: event.request.ip
-    };
-  }
 
   if (signalNames.has("provider_degradation")) {
     const provider = event.evmRpc?.provider ?? "unknown provider";

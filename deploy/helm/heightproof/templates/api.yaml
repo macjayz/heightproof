@@ -69,8 +69,8 @@ spec:
             {{- with .Values.api.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
-          # /ready reports degraded dependencies in its body but always answers 200, so both
-          # probes use /health; dependency state is exported on /metrics instead.
+          # /ready answers 503 when this pod can't reach Postgres or Redis. It deliberately ignores
+          # the worker, so a backlog never pulls API pods out of rotation (see /health/pipeline).
           startupProbe:
             httpGet: { path: /health, port: http }
             periodSeconds: 3
@@ -79,7 +79,7 @@ spec:
             httpGet: { path: /health, port: http }
             periodSeconds: 10
           readinessProbe:
-            httpGet: { path: /health, port: http }
+            httpGet: { path: /ready, port: http }
             periodSeconds: 5
           lifecycle:
             # Let endpoint removal propagate before Node exits on SIGTERM.

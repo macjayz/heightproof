@@ -30,6 +30,7 @@ spec:
           api=http://{{ include "heightproof.fullname" . }}-api:{{ .Values.api.service.port }}
           wget -qO- "$api/health"
           wget -qO- "$api/ready" | tee /dev/stderr | grep -q '"status":"ready"'
+          wget -qO- "$api/health/pipeline"
           {{- if .Values.dashboard.enabled }}
           dash=http://{{ include "heightproof.fullname" . }}-dashboard:{{ .Values.dashboard.service.port }}
           wget -qO- "$dash/healthz"

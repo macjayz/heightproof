@@ -8,6 +8,10 @@ export type ApiConfig = {
   seedDemoEvents: boolean;
   streamName: string;
   groupName: string;
+  /** Key the worker refreshes on every loop; /ready reports degraded when it expires. */
+  workerHeartbeatKey: string;
+  /** /ready reports degraded once the oldest unprocessed message is older than this. */
+  maxQueueAgeMs: number;
   adminEmail: string;
   adminPassword: string;
 };
@@ -33,6 +37,8 @@ export function loadConfig(): ApiConfig {
       (!isProduction && process.env.HEIGHTPROOF_SEED_DEMO_EVENTS !== "false"),
     streamName: process.env.HEIGHTPROOF_STREAM ?? "heightproof:events",
     groupName: process.env.HEIGHTPROOF_GROUP ?? "heightproof-workers",
+    workerHeartbeatKey: `${process.env.HEIGHTPROOF_STREAM ?? "heightproof:events"}:heartbeat`,
+    maxQueueAgeMs: Number(process.env.HEIGHTPROOF_MAX_QUEUE_AGE_MS ?? 60_000),
     adminEmail: process.env.HEIGHTPROOF_ADMIN_EMAIL ?? "owner@heightproof.local",
     adminPassword: process.env.HEIGHTPROOF_ADMIN_PASSWORD ?? "heightproof-demo"
   };
