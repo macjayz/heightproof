@@ -19,7 +19,21 @@ export type HeightproofMiddlewareOptions = {
   redaction?: RedactionConfig;
   flushIntervalMs?: number;
   maxBatchSize?: number;
+  /**
+   * Most events held in memory while Heightproof is unreachable. Beyond this the oldest are
+   * dropped, so an outage costs telemetry, never the host application's memory. Default 5000.
+   */
+  maxQueueSize?: number;
+  /** Abort an ingestion request after this long. Default 5000ms. */
+  requestTimeoutMs?: number;
+  /** Called when events are discarded, with how many and why. */
+  onDrop?: (count: number, reason: DropReason) => void;
 };
+
+export type DropReason = "queue_full" | "rejected";
+
+const DEFAULT_MAX_QUEUE_SIZE = 5000;
+const DEFAULT_REQUEST_TIMEOUT_MS = 5000;
 
 type RequestWithCapturedError = Request & { heightproofError?: unknown };
 
@@ -124,6 +138,7 @@ function getTraceId(req: Request) {
 export class HeightproofClient {
   private queue: HeightproofEvent[] = [];
   private timer?: NodeJS.Timeout;
+  private dropped = 0;
 
   constructor(private readonly options: HeightproofMiddlewareOptions) {
     this.timer = setInterval(() => void this.flush(), options.flushIntervalMs ?? 5000);
@@ -132,9 +147,15 @@ export class HeightproofClient {
 
   capture(event: HeightproofEvent): void {
     this.queue.push(event);
+    this.enforceQueueLimit();
     if (this.queue.length >= (this.options.maxBatchSize ?? 25)) {
       void this.flush();
     }
+  }
+
+  /** Events waiting to be sent, and events discarded since the client started. */
+  stats(): { queued: number; dropped: number } {
+    return { queued: this.queue.length, dropped: this.dropped };
   }
 
   async flush(): Promise<void> {
@@ -149,20 +170,52 @@ export class HeightproofClient {
           "content-type": "application/json",
           "x-heightproof-api-key": this.options.apiKey
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS)
       });
 
-      if (!response.ok) {
-        this.queue.unshift(...events);
+      if (response.ok) return;
+      if (isRetryableStatus(response.status)) {
+        this.requeue(events);
+      } else {
+        // A 400, 401, 403 or 413 will be rejected identically on every retry. Re-queueing it
+        // would put it back at the head of the queue and block every later batch for good.
+        this.drop(events.length, "rejected");
       }
     } catch {
-      this.queue.unshift(...events);
+      // Network failure or timeout: Heightproof may come back, so keep the batch.
+      this.requeue(events);
+    }
+  }
+
+  private requeue(events: HeightproofEvent[]) {
+    this.queue.unshift(...events);
+    this.enforceQueueLimit();
+  }
+
+  private enforceQueueLimit() {
+    const overflow = this.queue.length - (this.options.maxQueueSize ?? DEFAULT_MAX_QUEUE_SIZE);
+    if (overflow <= 0) return;
+    this.queue.splice(0, overflow);
+    this.drop(overflow, "queue_full");
+  }
+
+  private drop(count: number, reason: DropReason) {
+    this.dropped += count;
+    try {
+      this.options.onDrop?.(count, reason);
+    } catch {
+      // A throwing callback must not break capture in the host application.
     }
   }
 
   stop(): void {
     if (this.timer) clearInterval(this.timer);
   }
+}
+
+function isRetryableStatus(status: number) {
+  return status === 408 || status === 429 || status >= 500;
 }
 
 function normalizeHeaders(headers: Request["headers"]): Record<string, string> {
