@@ -1,0 +1,23 @@
+Heightproof {{ .Chart.AppVersion }} is deployed as release "{{ .Release.Name }}".
+
+{{- if .Values.ingress.enabled }}
+
+Open: http{{ if .Values.ingress.tls }}s{{ end }}://{{ .Values.ingress.host }}
+{{- else }}
+
+Port-forward the dashboard (it proxies the API on the same origin):
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "heightproof.fullname" . }}-dashboard 8080:{{ .Values.dashboard.service.port }}
+  open http://localhost:8080
+{{- end }}
+
+Admin login: {{ .Values.auth.adminEmail }}{{ if not .Values.demo.bootstrapUser }} (requires demo.bootstrapUser=true, or sign up){{ end }}
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "heightproof.secretName" . }} -o jsonpath='{.data.admin-password}' | base64 -d
+
+Ingestion API key for the SDK:
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "heightproof.secretName" . }} -o jsonpath='{.data.heightproof-api-key}' | base64 -d
+
+Smoke test: helm test {{ .Release.Name }} -n {{ .Release.Namespace }}
+{{- if .Values.postgresql.enabled }}
+
+NOTE: the bundled Postgres is a single pod without backups. Use externalDatabase.url in production.
+{{- end }}

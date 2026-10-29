@@ -20,8 +20,18 @@ import { fingerprintIncident } from "./incidents.js";
 
 const { Pool } = pg;
 
+/** A pool or a checked-out client, so the same write can run standalone or inside a transaction. */
+type Queryable = Pick<pg.PoolClient, "query">;
+
 export function createPool(config: WorkerConfig) {
-  return new Pool({ connectionString: config.databaseUrl });
+  const pool = new Pool({ connectionString: config.databaseUrl, application_name: "heightproof-worker" });
+  // pg-pool re-emits errors from idle clients (e.g. Postgres restarting). Without a listener
+  // Node treats that as an unhandled 'error' event and exits the process. The pool already
+  // discards the broken client, so logging is all that is needed here.
+  pool.on("error", (error) => {
+    console.error(JSON.stringify({ level: "error", msg: "postgres idle client error", error: error.message }));
+  });
+  return pool;
 }
 
 export async function countRecentIpRequests(pool: pg.Pool, projectId: string, ip?: string) {
@@ -137,7 +147,8 @@ export async function getStaleHeadContext(
   pool: pg.Pool,
   projectId: string,
   chainId: string | undefined,
-  endpointHash: string | undefined
+  endpointHash: string | undefined,
+  asOf: string = new Date().toISOString()
 ): Promise<StaleHeadContext> {
   if (!chainId) return {};
 
@@ -150,7 +161,9 @@ export async function getStaleHeadContext(
         and evm_endpoint_hash is not distinct from $3
         and evm_block_number is not null
         and (evm_block_tag is null or evm_block_tag = 'latest')
+        and evm_shadow_of_trace_id is null
         and timestamp > now() - interval '15 minutes'
+        and timestamp <= $4
     ),
     head as (
       select max(evm_block_number) as value from observations
@@ -169,10 +182,14 @@ export async function getStaleHeadContext(
         where project_id = $1 and kind = 'evm_rpc' and evm_chain_id = $2
           and evm_block_number is not null
           and (evm_block_tag is null or evm_block_tag = 'latest')
+          and evm_shadow_of_trace_id is null
           and timestamp > now() - interval '5 minutes'
+          -- Only what was known when this event happened. Batches from different endpoints
+          -- arrive out of order, and comparing against a head observed later reads as lag.
+          and timestamp <= $4
       )::bigint as chain_head
     `,
-    [projectId, chainId, endpointHash ?? null]
+    [projectId, chainId, endpointHash ?? null, asOf]
   );
 
   const row = result.rows[0];
@@ -499,7 +516,7 @@ export async function getWeb3ThreatContext(pool: pg.Pool, event: HeightproofEven
     countRecentEvmMethodCalls(pool, event.projectId, event.evmRpc.method, event.request.ip),
     getWalletTransactionStats(pool, event.projectId, event.evmRpc.walletAddress),
     getProviderRpcStats(pool, event.projectId, event.evmRpc.provider),
-    getStaleHeadContext(pool, event.projectId, event.evmRpc.chainId, event.evmRpc.endpointHash),
+    getStaleHeadContext(pool, event.projectId, event.evmRpc.chainId, event.evmRpc.endpointHash, event.timestamp),
     getSilentFailureContext(pool, event.projectId, event),
     getCostWasteContext(pool, event.projectId, event),
     getDisagreementContext(pool, event.projectId, event),
@@ -529,11 +546,12 @@ export async function getWeb3ThreatContext(pool: pg.Pool, event: HeightproofEven
   };
 }
 
-export async function persistEvent(pool: pg.Pool, event: HeightproofEvent, assessment: ThreatAssessment) {
+/** Inserts the event row. Returns false when an event with this id is already stored. */
+export async function persistEvent(db: Queryable, event: HeightproofEvent, assessment: ThreatAssessment) {
   const requestHeaders = redactHeaders(event.request.headers);
   const requestBody = redactValue(event.request.body ?? null);
 
-  await withSpan(
+  return withSpan(
     "heightproof.postgres.persist_event",
     {
       "heightproof.event_id": event.id,
@@ -541,7 +559,7 @@ export async function persistEvent(pool: pg.Pool, event: HeightproofEvent, asses
       "heightproof.project_id": event.projectId
     },
     async () => {
-      await pool.query(
+      const result = await db.query(
         `
     insert into api_events (
       id, trace_id, parent_span_id, project_id, service_name, environment, timestamp, kind, method, path, route, ip,
@@ -616,6 +634,7 @@ export async function persistEvent(pool: pg.Pool, event: HeightproofEvent, asses
           toJsonb(assessment.signals)
         ]
       );
+      return result.rowCount === 1;
     }
   );
 }
@@ -625,97 +644,155 @@ export async function createIncidentIfNeeded(
   event: HeightproofEvent,
   assessment: ThreatAssessment
 ) {
+  if (!fingerprintIncident(event, assessment)) return;
+  await inTransaction(pool, (client) => upsertIncident(client, event, assessment));
+}
+
+/** The incident half of recording an event; the caller owns the transaction. */
+async function upsertIncident(client: Queryable, event: HeightproofEvent, assessment: ThreatAssessment) {
   const fingerprint = fingerprintIncident(event, assessment);
   if (!fingerprint) return;
 
-  const client = await pool.connect();
+  let incidentId: string | null = null;
+  let isNewIncident = false;
 
+  const existing = await client.query(
+    `
+    select id, attacker_ips
+    from incidents
+    where incident_key = $1 and status in ('open', 'acknowledged')
+    for update
+    `,
+    [fingerprint.key]
+  );
+
+  if (existing.rowCount && existing.rows[0]) {
+    incidentId = existing.rows[0].id;
+    const attackerIps = mergeIps(existing.rows[0].attacker_ips, fingerprint.attackerIp);
+    await client.query(
+      `
+      update incidents
+      set severity = $2,
+          description = $3,
+          signals = $4,
+          attacker_ips = $5,
+          request_count = request_count + 1,
+          started_at = least(started_at, $6),
+          last_seen_at = greatest(last_seen_at, $6)
+      where id = $1
+      `,
+      [
+        existing.rows[0].id,
+        assessment.severity,
+        fingerprint.description,
+        toJsonb(assessment.signals),
+        JSON.stringify(attackerIps),
+        event.timestamp
+      ]
+    );
+  } else {
+    const created = await client.query(
+      `
+      insert into incidents (
+        event_id, incident_key, project_id, severity, title, description, signals,
+        affected_endpoint, attacker_ips, request_count, started_at, last_seen_at, status
+      )
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1, $10, $10, 'open')
+      -- incident_key is unique across all statuses. A recurrence of a resolved incident reopens
+      -- it (and alerts again); an ignored incident stays suppressed. Without the update branch
+      -- a resolved problem could never raise an incident or alert again.
+      on conflict (incident_key) do update
+      set status = 'open',
+          severity = excluded.severity,
+          description = excluded.description,
+          signals = excluded.signals,
+          attacker_ips = excluded.attacker_ips,
+          request_count = incidents.request_count + 1,
+          started_at = excluded.started_at,
+          last_seen_at = excluded.last_seen_at
+      where incidents.status = 'resolved'
+      returning id, (xmax <> 0) as reopened
+      `,
+      [
+        event.id,
+        fingerprint.key,
+        event.projectId,
+        assessment.severity,
+        fingerprint.title,
+        fingerprint.description,
+        toJsonb(assessment.signals),
+        fingerprint.affectedEndpoint,
+        JSON.stringify(mergeIps([], fingerprint.attackerIp)),
+        event.timestamp
+      ]
+    );
+    incidentId = created.rows[0]?.id ?? null;
+    isNewIncident = Boolean(incidentId);
+    await recordReopen(client, created.rows[0], event.projectId);
+  }
+
+  if (incidentId && isNewIncident && shouldQueueAlertDelivery(assessment.severity)) {
+    await client.query(
+      `
+      insert into alert_deliveries (incident_id, destination_id, project_id, status)
+      select $1, id, project_id, 'queued'
+      from alert_destinations
+      where project_id = $2 and enabled = true
+      `,
+      [incidentId, event.projectId]
+    );
+  }
+}
+
+async function inTransaction<T>(pool: pg.Pool, work: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+  const client = await pool.connect();
   try {
     await client.query("begin");
-    let incidentId: string | null = null;
-    let isNewIncident = false;
-
-    const existing = await client.query(
-      `
-      select id, attacker_ips
-      from incidents
-      where incident_key = $1 and status in ('open', 'acknowledged')
-      for update
-      `,
-      [fingerprint.key]
-    );
-
-    if (existing.rowCount && existing.rows[0]) {
-      incidentId = existing.rows[0].id;
-      const attackerIps = mergeIps(existing.rows[0].attacker_ips, fingerprint.attackerIp);
-      await client.query(
-        `
-        update incidents
-        set severity = $2,
-            description = $3,
-            signals = $4,
-            attacker_ips = $5,
-            request_count = request_count + 1,
-            started_at = least(started_at, $6),
-            last_seen_at = greatest(last_seen_at, $6)
-        where id = $1
-        `,
-        [
-          existing.rows[0].id,
-          assessment.severity,
-          fingerprint.description,
-          toJsonb(assessment.signals),
-          JSON.stringify(attackerIps),
-          event.timestamp
-        ]
-      );
-    } else {
-      const created = await client.query(
-        `
-        insert into incidents (
-          event_id, incident_key, project_id, severity, title, description, signals,
-          affected_endpoint, attacker_ips, request_count, started_at, last_seen_at, status
-        )
-        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1, $10, $10, 'open')
-        on conflict (incident_key) do nothing
-        returning id
-        `,
-        [
-          event.id,
-          fingerprint.key,
-          event.projectId,
-          assessment.severity,
-          fingerprint.title,
-          fingerprint.description,
-          toJsonb(assessment.signals),
-          fingerprint.affectedEndpoint,
-          JSON.stringify(mergeIps([], fingerprint.attackerIp)),
-          event.timestamp
-        ]
-      );
-      incidentId = created.rows[0]?.id ?? null;
-      isNewIncident = Boolean(incidentId);
-    }
-
-    if (incidentId && isNewIncident && shouldQueueAlertDelivery(assessment.severity)) {
-      await client.query(
-        `
-        insert into alert_deliveries (incident_id, destination_id, project_id, status)
-        select $1, id, project_id, 'queued'
-        from alert_destinations
-        where project_id = $2 and enabled = true
-        `,
-        [incidentId, event.projectId]
-      );
-    }
-
+    const result = await work(client);
     await client.query("commit");
+    return result;
   } catch (error) {
     await client.query("rollback");
     throw error;
   } finally {
     client.release();
   }
+}
+
+/**
+ * Records one event and everything derived from it — the event row, its incident and its error
+ * group — in a single transaction keyed on the event id. A message redelivered after a crash, or
+ * an event the SDK sent twice, finds its row already present and changes nothing; a failure part
+ * way through rolls back all three, so the retry starts clean instead of finding a stored event
+ * with no incident.
+ */
+export async function recordEvent(
+  pool: pg.Pool,
+  event: HeightproofEvent,
+  assessment: ThreatAssessment
+): Promise<"recorded" | "duplicate"> {
+  return inTransaction(pool, async (client) => {
+    if (!(await persistEvent(client, event, assessment))) return "duplicate";
+    await upsertIncident(client, event, assessment);
+    await upsertErrorGroup(client, event);
+    return "recorded";
+  });
+}
+
+/**
+ * Adds a timeline entry when an insert-or-reopen upsert reopened a resolved incident. Skipped for
+ * projects that have no `projects` row (dev-key traffic), which the timeline's foreign key rejects.
+ */
+async function recordReopen(client: Queryable, row: { id?: string; reopened?: boolean } | undefined, projectId: string) {
+  if (!row?.id || !row.reopened) return;
+  await client.query(
+    `
+    insert into incident_timeline (incident_id, project_id, action, actor, note)
+    select $1, $2, 'status:open', 'worker', 'Reopened: the problem recurred after it was resolved'
+    where exists (select 1 from projects where id = $2)
+    `,
+    [row.id, projectId]
+  );
 }
 
 const MAX_ALERT_DELIVERY_ATTEMPTS = 5;
@@ -851,8 +928,15 @@ export async function raiseAlertRuleIncident(pool: pg.Pool, rule: AlertRule, val
           affected_endpoint, attacker_ips, request_count, started_at, last_seen_at, status
         )
         values (null, $1, $2, 'high', $3, $4, $5, $6, $7, 1, $8, $8, 'open')
-        on conflict (incident_key) do nothing
-        returning id
+        -- See createIncidentIfNeeded: a resolved incident reopens, an ignored one stays quiet.
+        on conflict (incident_key) do update
+        set status = 'open',
+            description = excluded.description,
+            request_count = incidents.request_count + 1,
+            started_at = excluded.started_at,
+            last_seen_at = excluded.last_seen_at
+        where incidents.status = 'resolved'
+        returning id, (xmax <> 0) as reopened
         `,
         [
           incidentKey,
@@ -867,6 +951,7 @@ export async function raiseAlertRuleIncident(pool: pg.Pool, rule: AlertRule, val
       );
       incidentId = created.rows[0]?.id ?? null;
       isNewIncident = Boolean(incidentId);
+      await recordReopen(client, created.rows[0], rule.project_id);
     }
 
     if (incidentId && isNewIncident) {
@@ -919,57 +1004,51 @@ function formatAlertRuleValue(metric: string, value: number): string {
 }
 
 export async function recordErrorGroup(pool: pg.Pool, event: HeightproofEvent) {
+  if (!fingerprintError(event)) return;
+  await inTransaction(pool, (client) => upsertErrorGroup(client, event));
+}
+
+/** The error-group half of recording an event; the caller owns the transaction. */
+async function upsertErrorGroup(client: Queryable, event: HeightproofEvent) {
   const fingerprint = fingerprintError(event);
   if (!fingerprint) return;
 
-  const client = await pool.connect();
-  try {
-    await client.query("begin");
+  const existing = await client.query(
+    `select id, affected_ips from error_groups where project_id = $1 and fingerprint = $2 for update`,
+    [event.projectId, fingerprint.key]
+  );
 
-    const existing = await client.query(
-      `select id, affected_ips from error_groups where project_id = $1 and fingerprint = $2 for update`,
-      [event.projectId, fingerprint.key]
+  if (existing.rows[0]) {
+    const affectedIps = mergeIps(existing.rows[0].affected_ips, event.request.ip);
+    await client.query(
+      `
+      update error_groups
+      set occurrences = occurrences + 1, last_seen_at = $2, affected_ips = $3, updated_at = now()
+      where id = $1
+      `,
+      [existing.rows[0].id, event.timestamp, toJsonb(affectedIps)]
     );
-
-    if (existing.rows[0]) {
-      const affectedIps = mergeIps(existing.rows[0].affected_ips, event.request.ip);
-      await client.query(
-        `
-        update error_groups
-        set occurrences = occurrences + 1, last_seen_at = $2, affected_ips = $3, updated_at = now()
-        where id = $1
-        `,
-        [existing.rows[0].id, event.timestamp, toJsonb(affectedIps)]
-      );
-    } else {
-      await client.query(
-        `
-        insert into error_groups (
-          project_id, fingerprint, error_type, message, affected_endpoint, occurrences, affected_ips,
-          sample_stack, first_seen_at, last_seen_at
-        )
-        values ($1, $2, $3, $4, $5, 1, $6, $7, $8, $8)
-        on conflict (project_id, fingerprint) do nothing
-        `,
-        [
-          event.projectId,
-          fingerprint.key,
-          fingerprint.errorType,
-          fingerprint.message,
-          fingerprint.affectedEndpoint,
-          toJsonb(mergeIps([], event.request.ip)),
-          event.error?.stack ?? null,
-          event.timestamp
-        ]
-      );
-    }
-
-    await client.query("commit");
-  } catch (error) {
-    await client.query("rollback");
-    throw error;
-  } finally {
-    client.release();
+  } else {
+    await client.query(
+      `
+      insert into error_groups (
+        project_id, fingerprint, error_type, message, affected_endpoint, occurrences, affected_ips,
+        sample_stack, first_seen_at, last_seen_at
+      )
+      values ($1, $2, $3, $4, $5, 1, $6, $7, $8, $8)
+      on conflict (project_id, fingerprint) do nothing
+      `,
+      [
+        event.projectId,
+        fingerprint.key,
+        fingerprint.errorType,
+        fingerprint.message,
+        fingerprint.affectedEndpoint,
+        toJsonb(mergeIps([], event.request.ip)),
+        event.error?.stack ?? null,
+        event.timestamp
+      ]
+    );
   }
 }
 

@@ -97,6 +97,14 @@ export function detectStaleHead(
 ): ThreatSignal[] {
   if (event.kind !== "evm_rpc" || !event.evmRpc) return [];
 
+  // Verification calls (D2) are pinned to a height chosen by the verifier, usually behind the
+  // head by design. They say nothing about how current the endpoint is.
+  if (event.evmRpc.shadowOfTraceId) return [];
+
+  // D1 judges providers that are answering with data. A failed call reports no head at all, so
+  // the endpoint's last good head would read as lag; D3 and D5 own errors and throttling.
+  if (event.evmRpc.resultShape === "error_in_body" || event.response.statusCode >= 400) return [];
+
   // A call pinned to a past block, or explicitly asking for finalized state, is supposed
   // to return old data. Only head-tracking calls say anything about staleness.
   const tag = event.evmRpc.blockTag;
