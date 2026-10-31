@@ -15,6 +15,15 @@ import {
 } from "./detectors.js";
 import { z } from "zod";
 
+export {
+  airnodePassthroughRequestHash,
+  checkAirnodeAttestation,
+  readAirnodeAttestation,
+  recoverAirnodeSigner,
+  reverifyAttestation,
+  type AirnodeAttestation,
+  type AirnodeAttestationCheck
+} from "./airnode.js";
 export { buildDemoEvents } from "./demoEvents.js";
 export {
   detectCostWaste,
@@ -55,6 +64,9 @@ export {
   type BlockTag,
   type ResultShape
 } from "./rpc.js";
+
+/** Largest signed response body kept as attestation evidence. */
+export const AIRNODE_SIGNED_BODY_MAX_CHARS = 65_536;
 
 export const HttpMethodSchema = z.enum([
   "GET",
@@ -129,7 +141,24 @@ export const HeightproofEventSchema = z.object({
       endpointHash: z.string().optional(),
       costUnits: z.number().nonnegative().optional(),
       // Links a verification call back to the primary call it shadows (detector D2).
-      shadowOfTraceId: z.string().optional()
+      shadowOfTraceId: z.string().optional(),
+      // A signed answer from an attesting endpoint (an Airnode). Attribution, not truth:
+      // detectors compare it like any other peer. The worker re-checks the signature
+      // against `signedBody` rather than trusting the SDK's verdict.
+      attestation: z
+        .object({
+          scheme: z.literal("airnode"),
+          signer: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+          requestHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/),
+          timestamp: z.string().regex(/^\d+$/),
+          signature: z.string().regex(/^0x[0-9a-fA-F]{130}$/),
+          signatureValid: z.boolean(),
+          requestBound: z.boolean(),
+          // The response text exactly as signed, kept so the evidence can be re-verified
+          // later by anyone. Capped: an attestation over a larger body is kept without it.
+          signedBody: z.string().max(AIRNODE_SIGNED_BODY_MAX_CHARS).optional()
+        })
+        .optional()
     })
     .optional(),
   error: z

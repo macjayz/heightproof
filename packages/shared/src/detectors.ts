@@ -242,6 +242,8 @@ export type PeerResult = {
   endpointHash?: string;
   provider?: string;
   resultHash: string;
+  /** Signer of a verified Airnode attestation over this peer's answer, if it carried one. */
+  attestedBy?: string;
 };
 
 export type DisagreementContext = {
@@ -294,6 +296,7 @@ export function detectDisagreement(
   if (disagreeing.length === 0) return [];
 
   const labels = disagreeing.map((peer) => peer.provider ?? peer.endpointHash ?? "an unnamed endpoint");
+  const evidence = attestedEvidence(event, disagreeing);
 
   if (DISAGREEMENT_LOG_METHODS.has(method)) {
     return [
@@ -302,7 +305,7 @@ export function detectDisagreement(
         weight: 20,
         reason: `${method} at block ${blockNumber} returned a different set of logs than ${labels.join(
           ", "
-        )} — most often a silently truncated range rather than a wrong answer`
+        )} — most often a silently truncated range rather than a wrong answer${evidence}`
       }
     ];
   }
@@ -313,9 +316,24 @@ export function detectDisagreement(
       weight: 40,
       reason: `${method} at block ${blockNumber} returned a different result than ${labels.join(
         ", "
-      )}; at equal height this is a provider bug or an unpropagated reorg`
+      )}; at equal height this is a provider bug or an unpropagated reorg${evidence}`
     }
   ];
+}
+
+/**
+ * Names the signed answers on either side of a disagreement. A signature changes no weight:
+ * it makes the finding independently checkable, it does not make one side right.
+ */
+function attestedEvidence(event: HeightproofEvent, disagreeing: PeerResult[]): string {
+  const signers = new Set<string>();
+
+  const own = event.evmRpc?.attestation;
+  if (own?.signatureValid && own.requestBound) signers.add(own.signer);
+  for (const peer of disagreeing) if (peer.attestedBy) signers.add(peer.attestedBy);
+
+  if (signers.size === 0) return "";
+  return `. Airnode-signed evidence from ${[...signers].join(", ")} can be verified independently`;
 }
 
 /**

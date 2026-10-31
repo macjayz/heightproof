@@ -1,5 +1,5 @@
 import { Redis } from "ioredis";
-import { HeightproofEvent, HeightproofEventSchema } from "@heightproof/shared";
+import { HeightproofEvent, HeightproofEventSchema, hashRpcResult, reverifyAttestation } from "@heightproof/shared";
 import type { WorkerConfig } from "./config.js";
 
 export type StreamMessage = [id: string, fields: string[]];
@@ -25,8 +25,26 @@ export function parseStreamMessage(fields: string[]): ParsedMessage {
 
   const parsed = HeightproofEventSchema.safeParse(json);
   return parsed.success
-    ? { ok: true, event: parsed.data }
+    ? { ok: true, event: withReverifiedAttestation(parsed.data) }
     : { ok: false, reason: "schema_mismatch" };
+}
+
+/**
+ * An attestation's verdict comes from the SDK, which runs in someone else's process. The
+ * worker is the trust boundary, so it re-checks the signature itself before anything
+ * stores or compares it.
+ */
+function withReverifiedAttestation(event: HeightproofEvent): HeightproofEvent {
+  const evmRpc = event.evmRpc;
+  if (!evmRpc?.attestation) return event;
+
+  return {
+    ...event,
+    evmRpc: {
+      ...evmRpc,
+      attestation: reverifyAttestation(evmRpc.attestation, evmRpc.method, evmRpc.resultHash, hashRpcResult)
+    }
+  };
 }
 
 /**

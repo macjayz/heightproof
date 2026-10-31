@@ -1,4 +1,7 @@
 import {
+  AIRNODE_SIGNED_BODY_MAX_CHARS,
+  airnodePassthroughRequestHash,
+  checkAirnodeAttestation,
   classifyResultShape,
   extractBlockHash,
   extractRpcError,
@@ -6,6 +9,8 @@ import {
   hashRpcResult,
   isVerifiableMethod,
   pinBlockTag,
+  readAirnodeAttestation,
+  type HeightproofEvent,
   type ResultShape
 } from "@heightproof/shared";
 
@@ -27,7 +32,48 @@ import {
 export type VerificationEndpoint = {
   rpcUrl: string;
   provider?: string;
+  /**
+   * `"airnode"`: the endpoint signs its answers (an AirnodeHub passthrough URL). Each
+   * observation then carries the attestation, checked against the exact request sent.
+   */
+  attestation?: "airnode";
+  /**
+   * Fetch for this endpoint only, such as one wrapped to pay x402 charges. Falls back to
+   * the verifier's `fetchImpl`.
+   */
+  fetchImpl?: typeof fetch;
 };
+
+/** AirnodeHub's dRPC listing, reached through its JSON-RPC passthrough. */
+export const AIRNODE_DRPC_URL = "https://airnode-drpc.fly.dev";
+
+/**
+ * A verification endpoint that answers through AirnodeHub's dRPC listing, so every answer
+ * it gives is signed.
+ *
+ * Its reads are priced (x402, per call). Pass a `fetchImpl` that pays, such as one wrapped
+ * with `wrapFetchWithPaymentFromConfig` from `@x402/fetch`; an unpaid call is recorded as a
+ * failed observation and never compared.
+ */
+export function airnodeDrpcEndpoint(options: {
+  /** dRPC network slug, such as `ethereum` or `base` — not a chain ID. */
+  network: string;
+  fetchImpl?: typeof fetch;
+  provider?: string;
+  baseUrl?: string;
+}): VerificationEndpoint {
+  const url = new URL("/api/ogrpc", options.baseUrl ?? AIRNODE_DRPC_URL);
+  url.searchParams.set("network", options.network);
+
+  return {
+    rpcUrl: url.toString(),
+    provider: options.provider ?? "airnode-drpc",
+    attestation: "airnode",
+    fetchImpl: options.fetchImpl
+  };
+}
+
+export type ObservationAttestation = NonNullable<NonNullable<HeightproofEvent["evmRpc"]>["attestation"]>;
 
 export type VerificationOptions = {
   /** Endpoints to compare against. */
@@ -59,6 +105,8 @@ export type PeerObservation = {
   missingBlock: boolean;
   rpcErrorCode?: number;
   rpcErrorMessage?: string;
+  /** Present when an attesting endpoint signed this answer, valid or not. */
+  attestation?: ObservationAttestation;
 };
 
 export type VerificationRun = {
@@ -184,9 +232,11 @@ export class RpcVerifier {
     const endpointHash = hashEndpoint(endpoint.rpcUrl);
 
     try {
-      const body = await this.call(endpoint.rpcUrl, method, params);
+      const response = await this.send(endpoint, method, params);
+      const body = response.body;
       const rpcError = extractRpcError(body);
       const latencyMs = Date.now() - started;
+      const attestation = response.attestation;
 
       if (rpcError) {
         return {
@@ -196,7 +246,8 @@ export class RpcVerifier {
           latencyMs,
           missingBlock: MISSING_BLOCK_PATTERN.test(rpcError.message ?? ""),
           rpcErrorCode: rpcError.code,
-          rpcErrorMessage: rpcError.message
+          rpcErrorMessage: rpcError.message,
+          attestation
         };
       }
 
@@ -213,7 +264,8 @@ export class RpcVerifier {
         latencyMs,
         // A null where the primary had an answer is far more likely to be an endpoint that
         // has not caught up than a claim that the answer is genuinely null.
-        missingBlock: shape === "null"
+        missingBlock: shape === "null",
+        attestation
       };
     } catch (error) {
       return {
@@ -228,20 +280,63 @@ export class RpcVerifier {
   }
 
   private async call(rpcUrl: string, method: string, params: unknown) {
+    return (await this.send({ rpcUrl }, method, params)).body;
+  }
+
+  private async send(endpoint: VerificationEndpoint, method: string, params: unknown) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    // Serialized once: an Airnode's request hash covers these exact bytes.
+    const requestBody = JSON.stringify({ jsonrpc: "2.0", id: 1, method, params });
+    const fetchImpl = endpoint.fetchImpl ?? this.fetchImpl;
 
     try {
-      const response = await this.fetchImpl(rpcUrl, {
+      const response = await fetchImpl(endpoint.rpcUrl, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+        body: requestBody,
         signal: controller.signal
       });
 
-      return (await response.json()) as { result?: unknown; error?: unknown };
+      // Read as text: a signature covers the bytes as received, which re-serializing changes.
+      const text = await response.text();
+      const body = JSON.parse(text) as { jsonrpc?: unknown; result?: unknown; error?: unknown };
+
+      // A refusal that is not a JSON-RPC answer, such as an unpaid Airnode's 402, is a
+      // transport failure, not a provider saying something about the chain.
+      if (!response.ok && body.jsonrpc === undefined) {
+        throw new Error(`verification endpoint answered HTTP ${response.status}`);
+      }
+
+      return {
+        body,
+        attestation:
+          endpoint.attestation === "airnode"
+            ? attestationFor(endpoint.rpcUrl, requestBody, response.headers, text)
+            : undefined
+      };
     } finally {
       clearTimeout(timer);
     }
   }
+}
+
+function attestationFor(
+  rpcUrl: string,
+  requestBody: string,
+  headers: Headers,
+  text: string
+): ObservationAttestation | undefined {
+  const attestation = readAirnodeAttestation(headers);
+  if (!attestation) return undefined;
+
+  const expectedRequestHash = airnodePassthroughRequestHash({ method: "POST", url: rpcUrl, body: requestBody });
+  const check = checkAirnodeAttestation(attestation, text, expectedRequestHash);
+
+  return {
+    scheme: "airnode",
+    ...attestation,
+    ...check,
+    signedBody: text.length <= AIRNODE_SIGNED_BODY_MAX_CHARS ? text : undefined
+  };
 }

@@ -90,6 +90,8 @@ export type RequestRecord = {
   evm_rpc_method?: string;
   evm_chain_id?: string;
   evm_provider?: string;
+  /** Signer of a re-verified Airnode attestation over this answer. */
+  evm_attested_by?: string;
   wallet_address?: string;
   contract_address?: string;
   threat_score: number;

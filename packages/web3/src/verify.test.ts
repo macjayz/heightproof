@@ -1,5 +1,9 @@
+import { secp256k1 } from "@noble/curves/secp256k1";
+import { keccak_256 } from "@noble/hashes/sha3";
+import { bytesToHex, concatBytes, hexToBytes, utf8ToBytes } from "@noble/hashes/utils";
+import { airnodePassthroughRequestHash } from "@heightproof/shared";
 import { describe, expect, it, vi } from "vitest";
-import { RpcVerifier } from "./verify.js";
+import { airnodeDrpcEndpoint, RpcVerifier } from "./verify.js";
 
 const endpoints = [
   { rpcUrl: "https://a.example/key-a", provider: "alchemy" },
@@ -7,7 +11,7 @@ const endpoints = [
 ];
 
 function jsonResponse(body: unknown) {
-  return { ok: true, status: 200, json: async () => body } as unknown as Response;
+  return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
 }
 
 describe("eligibility", () => {
@@ -221,5 +225,114 @@ describe("observations", () => {
     const run = await verifier.verify("eth_getTransactionReceipt", ["0xdead"], "16");
 
     expect(run!.observations[0].blockHash).toBe(hash);
+  });
+});
+
+describe("airnode-attested endpoints", () => {
+  // A stand-in Airnode: signs whatever it answers exactly as the real one does.
+  const privateKey = secp256k1.utils.randomPrivateKey();
+  const signer = `0x${bytesToHex(keccak_256(secp256k1.getPublicKey(privateKey, false).slice(1)).slice(-20))}`;
+
+  function signedResponse(requestHash: string, text: string, timestamp = 1_793_476_662n) {
+    const digest = keccak_256(
+      concatBytes(hexToBytes(requestHash.slice(2)), hexToBytes(timestamp.toString(16).padStart(64, "0")), utf8ToBytes(text))
+    );
+    const signature = secp256k1.sign(
+      keccak_256(concatBytes(utf8ToBytes("\x19Ethereum Signed Message:\n32"), digest)),
+      privateKey
+    );
+    const encoded = `0x${bytesToHex(signature.toCompactRawBytes())}${(signature.recovery + 27).toString(16)}`;
+
+    return new Response(text, {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "x-airnode-address": signer,
+        "x-airnode-request-hash": requestHash,
+        "x-airnode-timestamp": timestamp.toString(),
+        "x-airnode-signature": encoded
+      }
+    });
+  }
+
+  function fakeAirnode(answer: (requestHash: string) => Response) {
+    return vi.fn(async (url: string, init: RequestInit) =>
+      answer(airnodePassthroughRequestHash({ method: "POST", url, body: String(init.body) })!)
+    );
+  }
+
+  it("builds a passthrough endpoint for the dRPC listing", () => {
+    expect(airnodeDrpcEndpoint({ network: "base" })).toMatchObject({
+      rpcUrl: "https://airnode-drpc.fly.dev/api/ogrpc?network=base",
+      provider: "airnode-drpc",
+      attestation: "airnode"
+    });
+  });
+
+  it("keeps a valid, request-bound attestation with the signed body", async () => {
+    const text = '{"id":1,"jsonrpc":"2.0","result":"0x64"}';
+    const airnodeFetch = fakeAirnode((hash) => signedResponse(hash, text));
+    const verifier = new RpcVerifier({
+      endpoints: [airnodeDrpcEndpoint({ network: "base", fetchImpl: airnodeFetch as unknown as typeof fetch })]
+    });
+
+    const run = await verifier.verify("eth_getBalance", ["0xabc", "latest"], "100");
+    const attestation = run!.observations[0]!.attestation;
+
+    expect(airnodeFetch).toHaveBeenCalledTimes(1);
+    expect(attestation).toMatchObject({
+      scheme: "airnode",
+      signer,
+      signatureValid: true,
+      requestBound: true,
+      signedBody: text
+    });
+  });
+
+  it("flags an answer signed for a different request", async () => {
+    const airnodeFetch = fakeAirnode(() =>
+      signedResponse(`0x${"ab".repeat(32)}`, '{"id":1,"jsonrpc":"2.0","result":"0x64"}')
+    );
+    const verifier = new RpcVerifier({
+      endpoints: [airnodeDrpcEndpoint({ network: "base", fetchImpl: airnodeFetch as unknown as typeof fetch })]
+    });
+
+    const run = await verifier.verify("eth_getBalance", ["0xabc", "latest"], "100");
+
+    expect(run!.observations[0]!.attestation).toMatchObject({ signatureValid: true, requestBound: false });
+  });
+
+  it("records an unpaid 402 as a failed observation, never as an answer", async () => {
+    const unpaid = vi.fn(async () =>
+      new Response('{"error":"Payment required"}', { status: 402, headers: { "content-type": "application/json" } })
+    );
+    const verifier = new RpcVerifier({
+      endpoints: [airnodeDrpcEndpoint({ network: "base", fetchImpl: unpaid as unknown as typeof fetch })]
+    });
+
+    const observation = (await verifier.verify("eth_getBalance", ["0xabc", "latest"], "100"))!.observations[0]!;
+
+    expect(observation.resultHash).toBeUndefined();
+    expect(observation.rpcErrorMessage).toContain("402");
+    expect(observation.attestation).toBeUndefined();
+  });
+
+  it("uses each endpoint's own fetch and the shared one for the rest", async () => {
+    const shared = vi.fn(async () => jsonResponse({ result: "0x64" }));
+    const paying = fakeAirnode((hash) => signedResponse(hash, '{"id":1,"jsonrpc":"2.0","result":"0x64"}'));
+    const verifier = new RpcVerifier({
+      endpoints: [
+        { rpcUrl: "https://a.example/key-a", provider: "alchemy" },
+        airnodeDrpcEndpoint({ network: "base", fetchImpl: paying as unknown as typeof fetch })
+      ],
+      fetchImpl: shared as unknown as typeof fetch
+    });
+
+    const run = await verifier.verify("eth_getBalance", ["0xabc", "latest"], "100");
+
+    expect(shared).toHaveBeenCalledTimes(1);
+    expect(paying).toHaveBeenCalledTimes(1);
+    expect(run!.observations[0]!.attestation).toBeUndefined();
+    expect(run!.observations[1]!.resultHash).toBe(run!.observations[0]!.resultHash);
   });
 });

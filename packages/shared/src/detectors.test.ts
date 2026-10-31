@@ -304,6 +304,33 @@ describe("D2 cross-provider disagreement", () => {
     expect(signals[0].reason).toContain("truncated");
     expect(signals[0].weight).toBeLessThan(40);
   });
+
+  it("names the Airnode signer of a disagreeing answer without changing the weight", () => {
+    const signer = "0x511AcE8648D2f64260d50D036F8f8ce622d92137";
+    const signals = detectDisagreement(rpcEvent(pinned), {
+      peerResults: [{ provider: "airnode-drpc", resultHash: "bbbb", attestedBy: signer }]
+    });
+
+    expect(signals[0].reason).toContain(`Airnode-signed evidence from ${signer}`);
+    expect(signals[0].weight).toBe(40);
+  });
+
+  it("credits only an attestation that is both valid and bound to the request", () => {
+    const attestation = {
+      scheme: "airnode" as const,
+      signer: "0x511AcE8648D2f64260d50D036F8f8ce622d92137",
+      requestHash: `0x${"1".repeat(64)}`,
+      timestamp: "1793476662",
+      signature: `0x${"2".repeat(130)}`,
+      signatureValid: true,
+      requestBound: false
+    };
+    const signals = detectDisagreement(rpcEvent({ ...pinned, attestation }), {
+      peerResults: [{ provider: "infura", resultHash: "bbbb" }]
+    });
+
+    expect(signals[0].reason).not.toContain("Airnode");
+  });
 });
 
 describe("D4 reorg lag", () => {

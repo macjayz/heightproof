@@ -148,6 +148,7 @@ export function RequestDetail(props: { request: RequestRecord; onClose: () => vo
     ["EVM RPC Method", r.evm_rpc_method],
     ["EVM Chain ID", r.evm_chain_id],
     ["EVM Provider", r.evm_provider],
+    ["Airnode Signer (verified)", r.evm_attested_by],
     ["Wallet Address", r.wallet_address],
     ["Contract Address", r.contract_address],
     ["Threat Score", r.threat_score],

@@ -56,5 +56,9 @@
     "viem": {
       "optional": true
     }
+  },
+  "devDependencies": {
+    "@noble/curves": "1.9.7",
+    "@noble/hashes": "1.8.0"
   }
 }

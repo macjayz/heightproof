@@ -343,7 +343,7 @@ export async function getDisagreementContext(
 
   const result = await pool.query(
     `
-    select evm_endpoint_hash, evm_provider, evm_result_hash, evm_result_shape
+    select evm_endpoint_hash, evm_provider, evm_result_hash, evm_result_shape, evm_attested_by
     from api_events
     where project_id = $1
       and evm_shadow_of_trace_id = $2
@@ -366,7 +366,8 @@ export async function getDisagreementContext(
     peerResults.push({
       endpointHash: row.evm_endpoint_hash ?? undefined,
       provider: row.evm_provider ?? undefined,
-      resultHash: row.evm_result_hash
+      resultHash: row.evm_result_hash,
+      attestedBy: row.evm_attested_by ?? undefined
     });
   }
 
@@ -546,6 +547,15 @@ export async function getWeb3ThreatContext(pool: pg.Pool, event: HeightproofEven
   };
 }
 
+/**
+ * The signer to credit with an observation: only an attestation the worker re-verified,
+ * answering the request that was actually sent.
+ */
+function attestedBy(event: HeightproofEvent): string | null {
+  const attestation = event.evmRpc?.attestation;
+  return attestation?.signatureValid && attestation.requestBound ? attestation.signer : null;
+}
+
 /** Inserts the event row. Returns false when an event with this id is already stored. */
 export async function persistEvent(db: Queryable, event: HeightproofEvent, assessment: ThreatAssessment) {
   const requestHeaders = redactHeaders(event.request.headers);
@@ -570,7 +580,8 @@ export async function persistEvent(db: Queryable, event: HeightproofEvent, asses
       evm_rpc_error_code, evm_rpc_error_message, evm_endpoint_hash, evm_cost_units,
       evm_shadow_of_trace_id, evm_result_count, evm_throttled,
       error_type, error_message, error_stack,
-      threat_score, threat_severity, threat_signals
+      threat_score, threat_severity, threat_signals,
+      evm_attestation, evm_attested_by
     )
     values (
       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
@@ -581,7 +592,8 @@ export async function persistEvent(db: Queryable, event: HeightproofEvent, asses
       $34, $35, $36, $37,
       $38, $39, $40,
       $41, $42, $43,
-      $44, $45, $46
+      $44, $45, $46,
+      $47, $48
     )
     on conflict (id) do nothing
     `,
@@ -631,7 +643,9 @@ export async function persistEvent(db: Queryable, event: HeightproofEvent, asses
           event.error?.stack,
           assessment.score,
           assessment.severity,
-          toJsonb(assessment.signals)
+          toJsonb(assessment.signals),
+          event.evmRpc?.attestation ? toJsonb(event.evmRpc.attestation) : null,
+          attestedBy(event)
         ]
       );
       return result.rowCount === 1;

@@ -124,6 +124,24 @@ const client = createPublicClient({
 Your RPC URL never leaves your process. Heightproof records a hash of the endpoint, never the URL
 itself, because provider URLs embed API keys.
 
+### Signed verification
+
+Add an [AirnodeHub](https://airnodehub.api3.org) endpoint to `verify` and every answer it gives
+is signed. When providers disagree, the incident names the signer and keeps the signed response,
+so anyone can re-verify the finding offline. The worker re-checks every signature itself instead
+of trusting the SDK.
+
+```ts
+import { airnodeDrpcEndpoint } from "@heightproof/web3";
+
+verify: {
+  endpoints: [airnodeDrpcEndpoint({ network: "base", fetchImpl: payingFetch })]
+}
+```
+
+A signature proves who answered, not that the answer is right, so it changes no detector weight.
+Setup, x402 payment and the trust model: [docs/airnode.md](docs/airnode.md).
+
 ## Run it
 
 ```bash
