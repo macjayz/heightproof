@@ -91,7 +91,7 @@ Credibility here is the entire point, and it is spent instantly by overclaiming.
 
 ## Phase 4 — Adoption
 
-- [ ] Publish `@heightproof/web3` to npm with real semver and a changelog
+- [x] Publish `@heightproof/web3` to npm with real semver and a changelog (0.1.0)
 - [ ] Hosted docs with a five-minute quickstart
 - [ ] Framework adapters: ethers.js, web3.js, plain `fetch`
 - [ ] Standalone mode — run the detectors without the full self-hosted stack
