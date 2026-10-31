@@ -4,6 +4,8 @@ All notable changes to Heightproof will be documented in this file.
 
 ## Unreleased
 
+- Added signed verification with AirnodeHub. `airnodeDrpcEndpoint()` adds AirnodeHub's dRPC listing to the D2 fan-out. Its EIP-191 attestations are checked against the exact request sent, re-checked by the worker against the kept body before anything is stored, and cited in D2 incident reasons. Each verification endpoint can take its own `fetchImpl`, for example one that pays x402 charges. Migration `003_airnode_attestation.sql` adds `evm_attestation` and `evm_attested_by`. See `docs/airnode.md`.
+- Verification endpoints that refuse with a non-JSON-RPC HTTP error, such as an unpaid `402`, are recorded as failed observations instead of being parsed as answers.
 - Added a Helm chart (`deploy/helm/heightproof`) for the API, worker and dashboard, with optional bundled Postgres and Redis StatefulSets, generated-and-persisted secrets, advisory-locked migration init containers, optional ingress/HPA/PDB, hardened pod security defaults, and a `helm test` smoke test.
 - Added a production dashboard image (`infra/dashboard.prod.Dockerfile`): a static Vite build served by unprivileged nginx that proxies the API and `/live` WebSocket on the same origin. An empty `VITE_HEIGHTPROOF_API_URL` now means "same origin".
 - Workers deployed on Kubernetes use the pod name as their Redis consumer name, so replicas no longer collide on `worker-1`.

@@ -120,6 +120,11 @@ providers agree rather than auditing one specific response, and it is the only f
 comparison that is free of head-skew false positives. The primary is added to the fan-out
 automatically, so every sample yields a set of directly comparable observations.
 
+**Signed peers.** A secondary can be an AirnodeHub endpoint whose answers are signed. Its
+answer is compared like any other peer's, and a signature changes no weight. When a disagreement
+involves an answer whose signature the worker re-verified, the reason names the signer and the
+signed body is kept as evidence. See [airnode.md](airnode.md).
+
 **Cost:** `sampleRate × (secondaryCount + 1)` extra calls, on endpoints you configure, plus at
 most one `eth_blockNumber` per `headCacheMs` to resolve a pin target. Bounded by a hard
 `maxCallsPerMinute` ceiling (default 60) that is checked before every fan-out, so verification can

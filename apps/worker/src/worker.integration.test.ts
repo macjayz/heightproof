@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import pg from "pg";
-import type { HeightproofEvent, ThreatAssessment } from "@heightproof/shared";
+import { hashRpcResult, type HeightproofEvent, type ThreatAssessment } from "@heightproof/shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { createIncidentIfNeeded, getStaleHeadContext, persistEvent } from "./db.js";
 import { runWorker } from "./worker.js";
@@ -476,6 +476,92 @@ describe.skipIf(!enabled)("worker against real Redis and Postgres", () => {
         endpointHeadBlockNumber: 1_002,
         endpointHeadObservations: 3
       });
+    });
+  });
+
+  describe("airnode-attested verification", () => {
+    // A real AirnodeHub dRPC answer (eth_chainId on Base) and its signature.
+    const signer = "0x511AcE8648D2f64260d50D036F8f8ce622d92137";
+    const signedBody = '{"id":1,"jsonrpc":"2.0","result":"0x2105"}';
+
+    function shadow(
+      projectId: string,
+      traceId: string,
+      provider: string,
+      result: string,
+      attested: boolean
+    ) {
+      return JSON.stringify({
+        id: `it-${randomUUID()}`,
+        projectId,
+        serviceName: "integration",
+        timestamp: new Date().toISOString(),
+        kind: "evm_rpc",
+        request: { method: "POST", path: "/rpc" },
+        response: { statusCode: 200, latencyMs: 5 },
+        evmRpc: {
+          method: "eth_chainId",
+          chainId: "8453",
+          provider,
+          endpointHash: `endpoint-${provider}`,
+          blockNumber: "1000",
+          resultHash: hashRpcResult(result, "eth_chainId"),
+          resultShape: "value",
+          shadowOfTraceId: traceId,
+          attestation: attested
+            ? {
+                scheme: "airnode",
+                signer,
+                requestHash: "0x54a6129d7f43c1eca3275010c8dab07929f1a29f218c1a3943e20607ec43166c",
+                timestamp: "1793476662",
+                signature:
+                  "0x6c4a5442ff116c6d37d133d17155b22743226cc10d82f29bf226b25a8bdda6db24b375f87102c888b631d700af78bab5b55b3e0919d67dafee1242e110543bca1c",
+                signatureValid: true,
+                requestBound: true,
+                signedBody
+              }
+            : undefined
+        }
+      });
+    }
+
+    it("stores the re-verified signer and cites it when a peer disagrees", async () => {
+      const worker = await startWorker();
+      const projectId = `it-${randomUUID()}`;
+      const traceId = randomUUID().replace(/-/g, "");
+
+      await worker.redis.xadd(
+        worker.config.streamName,
+        "*",
+        "event",
+        shadow(projectId, traceId, "airnode-drpc", "0x2105", true)
+      );
+      await worker.tick();
+      await worker.redis.xadd(
+        worker.config.streamName,
+        "*",
+        "event",
+        shadow(projectId, traceId, "infura", "0x1", false)
+      );
+      await worker.tick();
+
+      const rows = await worker.pool.query(
+        `select evm_provider, evm_attested_by, evm_attestation->>'signedBody' as body, threat_signals
+         from api_events where project_id = $1 order by evm_provider`,
+        [projectId]
+      );
+
+      expect(rows.rows[0]).toMatchObject({
+        evm_provider: "airnode-drpc",
+        evm_attested_by: signer,
+        body: signedBody
+      });
+      expect(rows.rows[1].evm_attested_by).toBeNull();
+
+      const disagreement = (rows.rows[1].threat_signals as { name: string; reason: string }[]).find(
+        (signal) => signal.name === "provider_disagreement"
+      );
+      expect(disagreement?.reason).toContain(`Airnode-signed evidence from ${signer}`);
     });
   });
 });

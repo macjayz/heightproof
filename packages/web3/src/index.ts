@@ -315,7 +315,8 @@ class RpcRecorder {
           costUnits: methodCostUnits(args.method, this.costTable),
           // Ties this observation back to the call that triggered verification, and to its
           // sibling observations at the same height.
-          shadowOfTraceId: traceId
+          shadowOfTraceId: traceId,
+          attestation: observation.attestation
         }
       });
     }
@@ -362,5 +363,10 @@ function collectStrings(value: unknown): string[] {
   return Object.values(value).flatMap((entry) => collectStrings(entry));
 }
 
-export { RpcVerifier } from "./verify.js";
-export type { PeerObservation, VerificationEndpoint, VerificationOptions } from "./verify.js";
+export { AIRNODE_DRPC_URL, airnodeDrpcEndpoint, RpcVerifier } from "./verify.js";
+export type {
+  ObservationAttestation,
+  PeerObservation,
+  VerificationEndpoint,
+  VerificationOptions
+} from "./verify.js";
