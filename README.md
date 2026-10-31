@@ -5,6 +5,8 @@
 Cross-provider verification, stale-head detection, silent-failure detection, and cost accounting for
 Ethereum JSON-RPC traffic. Self-hosted, MIT licensed.
 
+[![npm](https://img.shields.io/npm/v/@heightproof/web3)](https://www.npmjs.com/package/@heightproof/web3)
+
 ![Heightproof RPC activity](assets/screenshots/rpc-activity.png)
 
 ## The problem
@@ -84,8 +86,11 @@ This README describes where Heightproof is going and marks clearly what already 
 
 ## Use it
 
-`@heightproof/web3` is not on npm yet ([Phase 4](docs/roadmap.md#phase-4--adoption)) — build it from
-this repo with `npm install && npm run build`.
+```bash
+npm install @heightproof/web3
+```
+
+The SDK reports to a Heightproof server you run yourself (see [Run it](#run-it)).
 
 Wrap any EIP-1193 provider:
 
