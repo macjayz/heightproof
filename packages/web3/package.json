@@ -1,6 +1,6 @@
 {
   "name": "@heightproof/web3",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Detect EVM RPC failures that return 200 OK: wrap an EIP-1193 provider or viem transport and report every call to Heightproof.",
   "keywords": [
     "heightproof",
@@ -46,8 +46,8 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@heightproof/sdk-node": "0.1.0",
-    "@heightproof/shared": "0.1.0"
+    "@heightproof/sdk-node": "0.1.1",
+    "@heightproof/shared": "0.1.1"
   },
   "peerDependencies": {
     "viem": ">=2"

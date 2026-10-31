@@ -7,7 +7,7 @@
     "dev": "tsx client.ts"
   },
   "dependencies": {
-    "@heightproof/web3": "0.1.0",
+    "@heightproof/web3": "0.1.1",
     "tsx": "^4.19.0"
   }
 }

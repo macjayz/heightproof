@@ -1,6 +1,6 @@
 {
   "name": "@heightproof/sdk-node",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Heightproof SDK for Node.js: batched, non-blocking event delivery and Express middleware.",
   "keywords": [
     "heightproof",
@@ -42,7 +42,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@heightproof/shared": "0.1.0"
+    "@heightproof/shared": "0.1.1"
   },
   "peerDependencies": {
     "express": ">=4"

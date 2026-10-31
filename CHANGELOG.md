@@ -4,6 +4,14 @@ All notable changes to Heightproof will be documented in this file.
 
 ## Unreleased
 
+## 0.1.1
+
+- First release published by the `npm publish` workflow with npm trusted publishing and provenance. No code changes from 0.1.0.
+
+## 0.1.0
+
+- First npm release of `@heightproof/shared`, `@heightproof/sdk-node` and `@heightproof/web3`, including the changes listed below.
+
 - Added signed verification with AirnodeHub. `airnodeDrpcEndpoint()` adds AirnodeHub's dRPC listing to the D2 fan-out. Its EIP-191 attestations are checked against the exact request sent, re-checked by the worker against the kept body before anything is stored, and cited in D2 incident reasons. Each verification endpoint can take its own `fetchImpl`, for example one that pays x402 charges. Migration `003_airnode_attestation.sql` adds `evm_attestation` and `evm_attested_by`. See `docs/airnode.md`.
 - Verification endpoints that refuse with a non-JSON-RPC HTTP error, such as an unpaid `402`, are recorded as failed observations instead of being parsed as answers.
 - Added a Helm chart (`deploy/helm/heightproof`) for the API, worker and dashboard, with optional bundled Postgres and Redis StatefulSets, generated-and-persisted secrets, advisory-locked migration init containers, optional ingress/HPA/PDB, hardened pod security defaults, and a `helm test` smoke test.
