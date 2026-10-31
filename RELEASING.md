@@ -8,13 +8,16 @@ A `v*` tag releases everything at that version:
 
 ## Cutting a release
 
-1. Set the version in all three packages, and in the exact pins they hold on each other:
+1. Set the version in all three packages, and in every exact `@heightproof/*` pin across the
+   workspaces (the apps and examples pin them too, and a stale pin makes npm fetch the old
+   release from the registry instead of linking the workspace):
 
    ```bash
    VERSION=0.2.0
    npm version "$VERSION" --no-git-tag-version -w packages/shared -w packages/sdk-node -w packages/web3
-   npm pkg set "dependencies.@heightproof/shared=$VERSION" -w packages/sdk-node -w packages/web3
-   npm pkg set "dependencies.@heightproof/sdk-node=$VERSION" -w packages/web3
+   for f in $(git grep -l '"@heightproof/' -- '*package.json'); do
+     sed -i.bak -E "s/(\"@heightproof\/[a-z0-9-]+\": )\"[0-9][^\"]*\"/\1\"$VERSION\"/" "$f" && rm "$f.bak"
+   done
    npm install
    ```
 
@@ -43,6 +46,7 @@ that already exists, so:
 
    ```bash
    npm login
+   rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo
    npm run build
    npm publish -w packages/shared --access public
    npm publish -w packages/sdk-node --access public

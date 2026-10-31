@@ -11,7 +11,7 @@
     "test:integration": "HEIGHTPROOF_INTEGRATION=1 vitest run src/worker.integration.test.ts"
   },
   "dependencies": {
-    "@heightproof/shared": "0.1.0",
+    "@heightproof/shared": "0.1.1",
     "ioredis": "^5.4.1",
     "pg": "^8.12.0"
   },
