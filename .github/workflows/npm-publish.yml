@@ -1,0 +1,91 @@
+name: npm publish
+
+# A v* tag publishes @heightproof/shared, sdk-node and web3 at that version, in dependency order.
+#
+# Authentication is npm trusted publishing (OIDC): no npm token is stored in GitHub, and every
+# release carries a provenance attestation linking it to this workflow run. Each package must
+# list this repository and workflow as a trusted publisher on npmjs.com — see RELEASING.md.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Pack and check without publishing"
+        type: boolean
+        default: true
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Exchanged for a short-lived npm credential, and used to sign provenance.
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm 11.5.1 or later; Node 22 bundles npm 10.
+      - name: Upgrade npm
+        run: npm install -g npm@11.21.1
+
+      - name: Install
+        run: npm ci --include=optional
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Check versions match the tag
+        if: github.event_name == 'push'
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          for pkg in shared sdk-node web3; do
+            version="$(node -p "require('./packages/$pkg/package.json').version")"
+            if [ "$version" != "$tag" ]; then
+              echo "::error::packages/$pkg is $version but the tag is v$tag"
+              exit 1
+            fi
+            # Internal dependencies are pinned exactly, so a stale pin would publish a package
+            # that installs the previous release of its siblings.
+            stale="$(node -p "Object.entries(require('./packages/$pkg/package.json').dependencies ?? {}).filter(([n, v]) => n.startsWith('@heightproof/') && v !== '$tag').map(([n, v]) => n + '@' + v).join(' ')")"
+            if [ -n "$stale" ]; then
+              echo "::error::packages/$pkg pins $stale, expected $tag"
+              exit 1
+            fi
+          done
+
+      - name: Publish
+        env:
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          for pkg in shared sdk-node web3; do
+            name="$(node -p "require('./packages/$pkg/package.json').name")"
+            version="$(node -p "require('./packages/$pkg/package.json').version")"
+
+            # Re-running a release must not fail on packages it already published.
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "$name@$version is already on npm, skipping"
+              continue
+            fi
+
+            if [ "$DRY_RUN" = "true" ]; then
+              npm publish -w "packages/$pkg" --access public --dry-run
+            else
+              npm publish -w "packages/$pkg" --access public --provenance
+            fi
+          done
