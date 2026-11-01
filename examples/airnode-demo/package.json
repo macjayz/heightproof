@@ -1,0 +1,17 @@
+{
+  "name": "@heightproof/example-airnode-demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo": "tsx demo.ts"
+  },
+  "dependencies": {
+    "@heightproof/shared": "0.1.1",
+    "@heightproof/web3": "0.1.1",
+    "@x402/evm": "2.29.0",
+    "@x402/fetch": "2.29.0",
+    "tsx": "^4.19.0",
+    "viem": "2.57.14"
+  }
+}
