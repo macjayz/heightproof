@@ -5,6 +5,10 @@
  * errors inside 200 responses, rate limiting, latency, how often each provider's chain head
  * trailed the others, and how often providers disagreed at the same block height.
  *
+ * Ticks where most providers failed at once with a client-side network error are the
+ * collector's own connection dropping, not the providers. They are reported on their own and
+ * left out of availability, latency and head lag.
+ *
  * Usage: DATABASE_URL=... npx tsx scripts/study/report.ts [--out report.md]
  * The project comes from STUDY_PROJECT_ID, or from the collector's STUDY_STATE file.
  */
@@ -32,11 +36,32 @@ const q = async <T>(sql: string, params: unknown[] = [projectId]) =>
 // Primary calls only: verification (shadow) calls are reported separately as disagreements.
 const PRIMARY = `project_id = $1 and kind = 'evm_rpc' and evm_shadow_of_trace_id is null`;
 
+// The collector polls every provider in the same tick. A client-side network error on most of
+// them at once is the collector's own connection, and says nothing about any one provider.
+const TICK = `floor(extract(epoch from timestamp) / $2)`;
+const LOCAL_OUTAGE_TICKS = `
+  select ${TICK} as tick from api_events
+  where ${PRIMARY}
+  group by 1
+  having 2 * count(distinct evm_provider) filter (where evm_rpc_error_message = 'fetch failed')
+         > count(distinct evm_provider)`;
+const MEASURED = `${PRIMARY} and ${TICK} not in (${LOCAL_OUTAGE_TICKS})`;
+const withInterval = [projectId, intervalSeconds];
+
 const [window] = await q<{ first: Date; last: Date; calls: number }>(
   `select min(timestamp) as first, max(timestamp) as last, count(*)::int as calls from api_events where ${PRIMARY}`
 );
 if (!window?.calls) throw new Error(`no study data for project ${projectId}`);
 const hours = (window.last.getTime() - window.first.getTime()) / 3_600_000;
+
+const [outages] = await q<{ ticks: number; total_ticks: number; calls: number }>(
+  `select
+     (select count(*) from (${LOCAL_OUTAGE_TICKS}) o)::int as ticks,
+     count(distinct ${TICK})::int as total_ticks,
+     count(*) filter (where ${TICK} in (${LOCAL_OUTAGE_TICKS}))::int as calls
+   from api_events where ${PRIMARY}`,
+  withInterval
+);
 
 const availability = await q<{
   provider: string;
@@ -49,12 +74,13 @@ const availability = await q<{
 }>(
   `select evm_provider as provider, count(*)::int as calls,
      count(*) filter (where status_code >= 400)::int as transport_failed,
-     count(*) filter (where evm_result_shape = 'error_in_body')::int as error_in_body,
+     count(*) filter (where status_code < 400 and evm_result_shape = 'error_in_body')::int as error_in_body,
      count(*) filter (where evm_throttled)::int as throttled,
      percentile_cont(0.5) within group (order by latency_ms) filter (where status_code < 400) as p50,
      percentile_cont(0.95) within group (order by latency_ms) filter (where status_code < 400) as p95
-   from api_events where ${PRIMARY}
-   group by 1 order by 1`
+   from api_events where ${MEASURED}
+   group by 1 order by 1`,
+  withInterval
 );
 
 // Every provider is polled at the same moment each tick, so within one tick the highest head any
@@ -69,9 +95,9 @@ const headLag = await q<{
 }>(
   `with heads as (
      select evm_provider as provider, evm_block_number::bigint as head,
-            floor(extract(epoch from timestamp) / $2) as tick
+            ${TICK} as tick
      from api_events
-     where ${PRIMARY} and evm_rpc_method = 'eth_blockNumber' and evm_block_number is not null
+     where ${MEASURED} and evm_rpc_method = 'eth_blockNumber' and evm_block_number is not null
    ), lagged as (
      select provider, max(head) over (partition by tick) - head as lag from heads
    )
@@ -80,7 +106,7 @@ const headLag = await q<{
      count(*) filter (where lag > 3)::int as lag_gt_3,
      coalesce(max(lag), 0)::int as max_lag
    from lagged group by 1 order by 1`,
-  [projectId, intervalSeconds]
+  withInterval
 );
 
 // One verification run = every endpoint answering the same call pinned to the same height.
@@ -141,6 +167,10 @@ const table = (head: string[], rows: Array<Array<string | number>>) =>
 const report = `# Ethereum mainnet RPC reliability
 
 Project \`${projectId}\` · ${window.first.toISOString()} → ${window.last.toISOString()} (${hours.toFixed(1)} h) · ${window.calls.toLocaleString()} primary calls · polled every ${intervalSeconds}s
+
+## Local outages (excluded)
+
+${outages.ticks} of ${outages.total_ticks} ticks (${pct(outages.ticks, outages.total_ticks)}), ${outages.calls.toLocaleString()} calls: most providers failed at once with a client-side network error, which is the collector's own connection rather than any provider. Availability, latency and head lag below leave these ticks out; detector findings and incidents do not.
 
 ## Availability and answers
 
