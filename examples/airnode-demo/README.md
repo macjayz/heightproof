@@ -55,5 +55,23 @@ AIRNODE_PAYER_KEY=0x... npm run demo -w examples/airnode-demo
 Use a throwaway key: it only ever needs testnet funds. `BASE_RPC_URL` overrides the upstream the
 fake provider proxies, which defaults to `https://mainnet.base.org`.
 
+## With the dashboard
+
+`demo.ts` runs the comparison in-process. `dashboard.ts` runs the same story through a real
+Heightproof stack, the way Ada would: her app makes an ordinary call through
+`@heightproof/web3`, gets an answer that looks fine, and Heightproof re-checks it in the
+background. The worker re-verifies the Airnode signature, raises the D2 incident, and the
+dashboard shows it, with the Airnode signer on the AirnodeHub observation in the Request
+Explorer.
+
+```bash
+docker compose up --build -d
+AIRNODE_PAYER_KEY=0x... npm run dashboard -w examples/airnode-demo
+```
+
+Each run signs up a fresh workspace and prints its sign-in for the dashboard at
+`http://localhost:5173`. `HEIGHTPROOF_ENDPOINT` and `HEIGHTPROOF_DASHBOARD_URL` point it at a
+stack on other ports.
+
 How signed verification works, and what a signature does and does not prove:
 [docs/airnode.md](../../docs/airnode.md).

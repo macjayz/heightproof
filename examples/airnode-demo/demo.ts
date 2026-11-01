@@ -9,58 +9,20 @@
  * Needs a wallet holding aUSD on Base Sepolia (see README). Usage:
  *   AIRNODE_PAYER_KEY=0x... npm run demo -w examples/airnode-demo
  */
-import { createServer } from "node:http";
-import { AddressInfo } from "node:net";
 import { randomUUID } from "node:crypto";
-import { privateKeyToAccount } from "viem/accounts";
-import { x402Client, wrapFetchWithPayment } from "@x402/fetch";
-import { registerExactEvmScheme } from "@x402/evm/exact/client";
 import { RpcVerifier, airnodeDrpcEndpoint } from "@heightproof/web3";
 import { detectDisagreement, type HeightproofEvent } from "@heightproof/shared";
+import { UPSTREAM, payingFetch, startStaleProvider } from "./setup.js";
 
-const UPSTREAM = process.env.BASE_RPC_URL ?? "https://mainnet.base.org";
-const STALE_BY = 40;
-const AUSD = "0xbeA34973e5f67F18F656A2C6070C64326C791808";
-
-const payerKey = process.env.AIRNODE_PAYER_KEY as `0x${string}` | undefined;
-if (!payerKey) {
-  console.error("Set AIRNODE_PAYER_KEY to a Base Sepolia key holding aUSD. See README.md.");
-  process.exit(1);
-}
-
-// The misbehaving provider. Everything is a genuine mainnet answer, just not for the block asked.
-const stale = createServer((request, response) => {
-  let raw = "";
-  request.on("data", (chunk) => (raw += chunk));
-  request.on("end", async () => {
-    const call = JSON.parse(raw) as { method: string; params: unknown[] };
-    if (call.method === "eth_getBlockByNumber" && typeof call.params[0] === "string") {
-      call.params[0] = `0x${(Number.parseInt(call.params[0], 16) - STALE_BY).toString(16)}`;
-    }
-    const upstream = await fetch(UPSTREAM, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, ...call })
-    });
-    response.writeHead(200, { "content-type": "application/json" });
-    response.end(await upstream.text());
-  });
-});
-await new Promise<void>((resolve) => stale.listen(0, "127.0.0.1", resolve));
-const staleUrl = `http://127.0.0.1:${(stale.address() as AddressInfo).port}`;
-
-// Pays AirnodeHub's $0.01 per call in aUSD, capped at 1 aUSD per payment.
-const payments = new x402Client().setSpendControls({
-  allowedAssets: [{ network: "eip155:84532", asset: AUSD, maxAmountPerPayment: "1000000" }]
-});
-registerExactEvmScheme(payments, { signer: privateKeyToAccount(payerKey) });
+const fetchImpl = payingFetch();
+const stale = await startStaleProvider();
 
 const verifier = new RpcVerifier({
   sampleRate: 1,
   timeoutMs: 30_000,
   endpoints: [
-    { rpcUrl: staleUrl, provider: "your-provider" },
-    airnodeDrpcEndpoint({ network: "base", fetchImpl: wrapFetchWithPayment(fetch, payments) })
+    { rpcUrl: stale.url, provider: "your-provider" },
+    airnodeDrpcEndpoint({ network: "base", fetchImpl })
   ]
 });
 
@@ -70,7 +32,7 @@ if (!blockNumber) throw new Error(`could not read the chain head from ${UPSTREAM
 
 console.log(`\nAsking both providers for Base block ${blockNumber}...\n`);
 const run = await verifier.verify(method, ["latest", false], blockNumber);
-stale.close();
+stale.server.close();
 if (!run) throw new Error("verification was not run");
 
 const [primary, peer] = run.observations;
