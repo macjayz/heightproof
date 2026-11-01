@@ -145,7 +145,8 @@ verify: {
 ```
 
 A signature proves who answered, not that the answer is right, so it changes no detector weight.
-Setup, x402 payment and the trust model: [docs/airnode.md](docs/airnode.md).
+Setup, x402 payment and the trust model: [docs/airnode.md](docs/airnode.md). To see it catch a
+provider serving wrong data, run [examples/airnode-demo](examples/airnode-demo).
 
 ## Run it
 
