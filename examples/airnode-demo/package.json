@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "demo": "tsx demo.ts"
+    "demo": "tsx demo.ts",
+    "dashboard": "tsx dashboard.ts"
   },
   "dependencies": {
     "@heightproof/shared": "0.1.1",
