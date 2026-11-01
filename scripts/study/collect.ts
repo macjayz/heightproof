@@ -1,8 +1,9 @@
 /**
  * RPC reliability study: collector.
  *
- * Polls several Ethereum mainnet endpoints on a fixed interval through @heightproof/web3, with
- * cross-provider verification on, so Heightproof records every answer and every detector finding.
+ * Polls public endpoints on Ethereum mainnet, Base and Arbitrum on a fixed interval through
+ * @heightproof/web3, with cross-provider verification on among the endpoints of each chain, so
+ * Heightproof records every answer and every detector finding.
  * Meant to run unattended for days (see the `study` compose profile); `report.ts` turns what it
  * collected into numbers.
  *
@@ -14,36 +15,106 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { createHeightproofRpcClient } from "@heightproof/web3";
 
-type Endpoint = { name: string; url: string };
+type Chain = {
+  chainId: number;
+  /** USDC on this chain: a busy contract, for reads and for log queries. */
+  usdc: string;
+  /**
+   * Blocks a log query spans. Free public tiers cap it (BlastAPI at 10 blocks) and treat ranges
+   * far from the head as archive requests, so it stays short and recent.
+   */
+  logRange: number;
+  /** How far behind the head a log range ends, about 10 s, so a provider a block behind is not a mismatch. */
+  logLag: number;
+};
+type Endpoint = { name: string; url: string; chain: string };
 type StudyState = { projectId: string; apiKey: string; startedAt: string };
 
+const CHAINS: Record<string, Chain> = {
+  ethereum: {
+    chainId: 1,
+    usdc: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    logRange: 10,
+    logLag: 3
+  },
+  base: {
+    chainId: 8453,
+    usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    logRange: 10,
+    logLag: 5
+  },
+  arbitrum: {
+    chainId: 42161,
+    usdc: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+    logRange: 10,
+    logLag: 40
+  }
+};
+
+// `name=url` is an Ethereum mainnet endpoint; `chain/name=url` names its chain.
 const DEFAULT_ENDPOINTS =
   "publicnode=https://ethereum-rpc.publicnode.com," +
   "drpc=https://eth.drpc.org," +
   "blastapi=https://eth-mainnet.public.blastapi.io," +
   "mevblocker=https://rpc.mevblocker.io," +
-  "onfinality=https://eth.api.onfinality.io/public";
+  "onfinality=https://eth.api.onfinality.io/public," +
+  "base/official=https://mainnet.base.org," +
+  "base/publicnode=https://base-rpc.publicnode.com," +
+  "base/drpc=https://base.drpc.org," +
+  "base/blastapi=https://base-mainnet.public.blastapi.io," +
+  "arbitrum/official=https://arb1.arbitrum.io/rpc," +
+  "arbitrum/publicnode=https://arbitrum-one-rpc.publicnode.com," +
+  "arbitrum/drpc=https://arbitrum.drpc.org," +
+  "arbitrum/blastapi=https://arbitrum-one.public.blastapi.io";
 
 const api = process.env.HEIGHTPROOF_ENDPOINT ?? "http://localhost:8080";
 const statePath = process.env.STUDY_STATE ?? ".study/state.json";
 const intervalMs = Number(process.env.STUDY_INTERVAL_MS ?? 15_000);
 const sampleRate = Number(process.env.STUDY_VERIFY_SAMPLE_RATE ?? 0.2);
 const callTimeoutMs = Number(process.env.STUDY_CALL_TIMEOUT_MS ?? 10_000);
+// Log queries return the most data by far, so they run on every Nth tick only.
+const logsEveryTicks = Number(process.env.STUDY_LOGS_EVERY_TICKS ?? 4);
 const endpoints: Endpoint[] = (process.env.STUDY_ENDPOINTS ?? DEFAULT_ENDPOINTS)
   .split(",")
   .map((entry) => {
-    const [name, ...url] = entry.trim().split("=");
-    return { name, url: url.join("=") };
+    const [label, ...url] = entry.trim().split("=");
+    const chain = label.includes("/") ? label.slice(0, label.indexOf("/")) : "ethereum";
+    if (!CHAINS[chain]) throw new Error(`unknown chain "${chain}" in STUDY_ENDPOINTS`);
+    return { name: label, url: url.join("="), chain };
   });
 
 // Deterministic reads whose answers every honest provider must agree on at a given height.
 const WALLET = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
-const USDC = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
-const CALLS: Array<{ method: string; params: unknown[] }> = [
-  { method: "eth_blockNumber", params: [] },
-  { method: "eth_getBalance", params: [WALLET, "latest"] },
-  { method: "eth_call", params: [{ to: USDC, data: "0x18160ddd" }, "latest"] }
-];
+const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+
+type Call = { method: string; params: unknown[] };
+
+/**
+ * One tick's calls against one endpoint. The block at the tip is where reorgs and lagging nodes
+ * show; a log range over a busy contract is where providers silently truncate.
+ */
+function callsFor(chain: Chain, head: number | undefined, tick: number): Call[] {
+  const calls: Call[] = [
+    { method: "eth_getBalance", params: [WALLET, "latest"] },
+    { method: "eth_call", params: [{ to: chain.usdc, data: "0x18160ddd" }, "latest"] },
+    { method: "eth_getBlockByNumber", params: ["latest", false] }
+  ];
+  if (head !== undefined && tick % logsEveryTicks === 0) {
+    const toBlock = head - chain.logLag;
+    calls.push({
+      method: "eth_getLogs",
+      params: [
+        {
+          address: chain.usdc,
+          topics: [TRANSFER_TOPIC],
+          fromBlock: `0x${(toBlock - chain.logRange + 1).toString(16)}`,
+          toBlock: `0x${toBlock.toString(16)}`
+        }
+      ]
+    });
+  }
+  return calls;
+}
 
 const state = await loadOrCreateState();
 console.log(
@@ -58,12 +129,12 @@ const clients = endpoints.map((endpoint) => ({
     endpoint: api,
     rpcUrl: endpoint.url,
     provider: endpoint.name,
-    chainId: 1,
+    chainId: CHAINS[endpoint.chain].chainId,
     serviceName: "rpc-study",
     environment: "study",
     verify: {
       endpoints: endpoints
-        .filter((other) => other !== endpoint)
+        .filter((other) => other !== endpoint && other.chain === endpoint.chain)
         .map((other) => ({ rpcUrl: other.url, provider: other.name })),
       sampleRate,
       maxCallsPerMinute: 20,
@@ -81,7 +152,16 @@ for (let tick = 1; !stopping; tick++) {
   const started = Date.now();
   await Promise.all(
     clients.map(async ({ endpoint, client }) => {
-      for (const call of CALLS) {
+      const head = await withTimeout(
+        client.request({ method: "eth_blockNumber", params: [] }),
+        callTimeoutMs
+      ).then(
+        (result) => (typeof result === "string" ? Number.parseInt(result, 16) : undefined),
+        () => undefined
+      );
+      totals.get(endpoint.name)![head === undefined ? "failed" : "ok"] += 1;
+
+      for (const call of callsFor(CHAINS[endpoint.chain], head, tick)) {
         const outcome = await withTimeout(client.request(call), callTimeoutMs).then(
           () => "ok" as const,
           () => "failed" as const
