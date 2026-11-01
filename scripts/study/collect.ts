@@ -9,11 +9,16 @@
  *
  * The first run signs up a dedicated workspace and keeps its API key in STUDY_STATE, so restarts
  * keep writing to the same project.
+ *
+ * Paid endpoints (STUDY_PAID_ENDPOINTS, x402 per call) run only when STUDY_X402_PAYER_KEY is set,
+ * on every STUDY_PAID_EVERY_TICKS-th tick, within STUDY_PAID_DAILY_BUDGET_USD. They are never
+ * used to verify other endpoints, so verification never spends money on their behalf.
  */
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { createHeightproofRpcClient } from "@heightproof/web3";
+import { createPaidBudget } from "./paid.js";
 
 type Chain = {
   chainId: number;
@@ -27,7 +32,7 @@ type Chain = {
   /** How far behind the head a log range ends, about 10 s, so a provider a block behind is not a mismatch. */
   logLag: number;
 };
-type Endpoint = { name: string; url: string; chain: string };
+type Endpoint = { name: string; url: string; chain: string; paid: boolean };
 type StudyState = { projectId: string; apiKey: string; startedAt: string };
 
 const CHAINS: Record<string, Chain> = {
@@ -67,6 +72,12 @@ const DEFAULT_ENDPOINTS =
   "arbitrum/drpc=https://arbitrum.drpc.org," +
   "arbitrum/blastapi=https://arbitrum-one.public.blastapi.io";
 
+// RPC sold per call to AI agents over x402. Pocket Network quoted $0.005 a call on 1 Nov 2026.
+const DEFAULT_PAID_ENDPOINTS =
+  "pocket=https://agent.pocket.network/v1/eth," +
+  "base/pocket=https://agent.pocket.network/v1/base," +
+  "arbitrum/pocket=https://agent.pocket.network/v1/arb-one";
+
 const api = process.env.HEIGHTPROOF_ENDPOINT ?? "http://localhost:8080";
 const statePath = process.env.STUDY_STATE ?? ".study/state.json";
 const intervalMs = Number(process.env.STUDY_INTERVAL_MS ?? 15_000);
@@ -74,14 +85,35 @@ const sampleRate = Number(process.env.STUDY_VERIFY_SAMPLE_RATE ?? 0.2);
 const callTimeoutMs = Number(process.env.STUDY_CALL_TIMEOUT_MS ?? 10_000);
 // Log queries return the most data by far, so they run on every Nth tick only.
 const logsEveryTicks = Number(process.env.STUDY_LOGS_EVERY_TICKS ?? 4);
-const endpoints: Endpoint[] = (process.env.STUDY_ENDPOINTS ?? DEFAULT_ENDPOINTS)
-  .split(",")
-  .map((entry) => {
-    const [label, ...url] = entry.trim().split("=");
-    const chain = label.includes("/") ? label.slice(0, label.indexOf("/")) : "ethereum";
-    if (!CHAINS[chain]) throw new Error(`unknown chain "${chain}" in STUDY_ENDPOINTS`);
-    return { name: label, url: url.join("="), chain };
-  });
+const payerKey = process.env.STUDY_X402_PAYER_KEY as `0x${string}` | undefined;
+const paidEveryTicks = Number(process.env.STUDY_PAID_EVERY_TICKS ?? 80);
+const paidPriceUsd = Number(process.env.STUDY_PAID_PRICE_USD ?? 0.005);
+const paidDailyBudgetUsd = Number(process.env.STUDY_PAID_DAILY_BUDGET_USD ?? 8);
+
+function parseEndpoints(list: string, paid: boolean): Endpoint[] {
+  return list
+    .split(",")
+    .filter((entry) => entry.trim())
+    .map((entry) => {
+      const [label, ...url] = entry.trim().split("=");
+      const chain = label.includes("/") ? label.slice(0, label.indexOf("/")) : "ethereum";
+      if (!CHAINS[chain]) throw new Error(`unknown chain "${chain}" in study endpoints`);
+      return { name: label, url: url.join("="), chain, paid };
+    });
+}
+
+const endpoints: Endpoint[] = [
+  ...parseEndpoints(process.env.STUDY_ENDPOINTS ?? DEFAULT_ENDPOINTS, false),
+  ...(payerKey ? parseEndpoints(process.env.STUDY_PAID_ENDPOINTS ?? DEFAULT_PAID_ENDPOINTS, true) : [])
+];
+const budget = payerKey
+  ? createPaidBudget({
+      payerKey,
+      paidUrls: endpoints.filter((e) => e.paid).map((e) => e.url),
+      priceUsd: paidPriceUsd,
+      dailyBudgetUsd: paidDailyBudgetUsd
+    })
+  : undefined;
 
 // Deterministic reads whose answers every honest provider must agree on at a given height.
 const WALLET = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
@@ -120,6 +152,11 @@ const state = await loadOrCreateState();
 console.log(
   `study project ${state.projectId} (since ${state.startedAt}); ${endpoints.length} endpoints every ${intervalMs}ms, verify sample ${sampleRate}`
 );
+console.log(
+  budget
+    ? `paid endpoints on: every ${paidEveryTicks} ticks, $${paidPriceUsd}/call, budget $${paidDailyBudgetUsd}/day`
+    : "paid endpoints off (set STUDY_X402_PAYER_KEY to a Base key holding USDC)"
+);
 
 const clients = endpoints.map((endpoint) => ({
   endpoint,
@@ -128,17 +165,20 @@ const clients = endpoints.map((endpoint) => ({
     apiKey: state.apiKey,
     endpoint: api,
     rpcUrl: endpoint.url,
+    fetchImpl: endpoint.paid ? budget!.fetch : undefined,
     provider: endpoint.name,
     chainId: CHAINS[endpoint.chain].chainId,
     serviceName: "rpc-study",
     environment: "study",
     verify: {
       endpoints: endpoints
-        .filter((other) => other !== endpoint && other.chain === endpoint.chain)
+        .filter((other) => other !== endpoint && other.chain === endpoint.chain && !other.paid)
         .map((other) => ({ rpcUrl: other.url, provider: other.name })),
       sampleRate,
       maxCallsPerMinute: 20,
-      timeoutMs: callTimeoutMs
+      timeoutMs: callTimeoutMs,
+      // A paid endpoint is also asked for the head when verifying, so that call must pay too.
+      fetchImpl: endpoint.paid ? budget!.fetch : undefined
     }
   })
 }));
@@ -150,8 +190,14 @@ process.on("SIGINT", () => (stopping = true));
 const totals = new Map(endpoints.map((endpoint) => [endpoint.name, { ok: 0, failed: 0 }]));
 for (let tick = 1; !stopping; tick++) {
   const started = Date.now();
+  // A multiple of logsEveryTicks, so paid endpoints get the log query too.
+  const paidTick = tick % paidEveryTicks === 0;
   await Promise.all(
     clients.map(async ({ endpoint, client }) => {
+      // Skip, rather than fail, paid calls outside their ticks or past the budget, so they do
+      // not show up as provider failures in the report.
+      if (endpoint.paid && (!paidTick || budget!.exhausted())) return;
+
       const head = await withTimeout(
         client.request({ method: "eth_blockNumber", params: [] }),
         callTimeoutMs
@@ -173,7 +219,8 @@ for (let tick = 1; !stopping; tick++) {
 
   if (tick % 20 === 0) {
     const summary = [...totals].map(([name, t]) => `${name} ${t.ok}/${t.ok + t.failed}`).join("  ");
-    console.log(`${new Date().toISOString()} tick ${tick}  ok/total: ${summary}`);
+    const spend = budget ? `  x402 spent today $${budget.spentTodayUsd().toFixed(3)}` : "";
+    console.log(`${new Date().toISOString()} tick ${tick}  ok/total: ${summary}${spend}`);
   }
   await sleep(Math.max(0, intervalMs - (Date.now() - started)));
 }

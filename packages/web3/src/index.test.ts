@@ -149,6 +149,25 @@ describe("result capture", () => {
     vi.unstubAllGlobals();
   });
 
+  it("calls the rpc url through fetchImpl when one is given", async () => {
+    captured.length = 0;
+    const globalFetch = vi.fn();
+    vi.stubGlobal("fetch", globalFetch);
+    const payingFetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ jsonrpc: "2.0", result: "0x10" })
+    })) as unknown as typeof fetch;
+
+    const client = createHeightproofRpcClient({ ...baseOptions, rpcUrl: "https://paid.example/v1/eth", fetchImpl: payingFetch });
+
+    expect(await client.request({ method: "eth_blockNumber", params: [] })).toBe("0x10");
+    expect(payingFetch).toHaveBeenCalledWith("https://paid.example/v1/eth", expect.objectContaining({ method: "POST" }));
+    expect(globalFetch).not.toHaveBeenCalled();
+
+    vi.unstubAllGlobals();
+  });
+
   it("never lets the rpc url reach the captured event", async () => {
     captured.length = 0;
     const fetchMock = vi.fn(async () => ({

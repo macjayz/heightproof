@@ -47,6 +47,11 @@ export type HeightproofWeb3Options = {
    * requests against the endpoints you name.
    */
   verify?: VerificationOptions;
+  /**
+   * Fetch used for calls to `rpcUrl`. Pass one that pays for priced endpoints, such as a fetch
+   * wrapped with x402. Defaults to the global fetch.
+   */
+  fetchImpl?: typeof fetch;
 };
 
 /**
@@ -87,7 +92,7 @@ export function createHeightproofRpcClient(options: HeightproofWeb3Options) {
   return {
     async request(args: JsonRpcRequest) {
       const outcome = await recorder.record(args, async () => {
-        const response = await fetch(options.rpcUrl!, {
+        const response = await (options.fetchImpl ?? fetch)(options.rpcUrl!, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({

@@ -96,6 +96,10 @@ services:
       HEIGHTPROOF_ENDPOINT: http://api:8080
       DATABASE_URL: postgres://heightproof:heightproof@postgres:5432/heightproof
       STUDY_STATE: /data/state.json
+      # Optional: x402-paid RPC providers (USDC on Base). Off unless a funded key is set.
+      STUDY_X402_PAYER_KEY: ${STUDY_X402_PAYER_KEY:-}
+      STUDY_PAID_DAILY_BUDGET_USD: ${STUDY_PAID_DAILY_BUDGET_USD:-8}
+      STUDY_PAID_EVERY_TICKS: ${STUDY_PAID_EVERY_TICKS:-80}
     volumes:
       - heightproof-study:/data
     depends_on:
