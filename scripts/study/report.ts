@@ -3,7 +3,7 @@
  *
  * Reads what the collector recorded and prints a Markdown summary per provider: availability,
  * errors inside 200 responses, rate limiting, latency, how often each provider's chain head
- * trailed the others, and how often providers disagreed at the same block height.
+ * trailed the others on its chain, and how often providers disagreed at the same block height.
  *
  * Ticks where most providers failed at once with a client-side network error are the
  * collector's own connection dropping, not the providers. They are reported on their own and
@@ -48,6 +48,15 @@ const LOCAL_OUTAGE_TICKS = `
 const MEASURED = `${PRIMARY} and ${TICK} not in (${LOCAL_OUTAGE_TICKS})`;
 const withInterval = [projectId, intervalSeconds];
 
+const CHAIN_NAMES: Record<string, string> = {
+  "1": "Ethereum",
+  "8453": "Base",
+  "42161": "Arbitrum"
+};
+// Block time in seconds, so head lag compares across chains: two blocks is 24 s on Ethereum
+// but half a second on Arbitrum.
+const BLOCK_SECONDS = `(case evm_chain_id when '8453' then 2 when '42161' then 0.25 else 12 end)`;
+
 const [window] = await q<{ first: Date; last: Date; calls: number }>(
   `select min(timestamp) as first, max(timestamp) as last, count(*)::int as calls from api_events where ${PRIMARY}`
 );
@@ -84,49 +93,59 @@ const availability = await q<{
 );
 
 // Every provider is polled at the same moment each tick, so within one tick the highest head any
-// provider reported is the reference. Lag of 1 block is mostly a block landing mid-tick; the
-// stale-head detector's threshold is more than 3.
+// provider on the same chain reported is the reference. Up to one Ethereum block is mostly a block
+// landing mid-tick; the stale-head detector's threshold is more than 3 blocks (36 s).
 const headLag = await q<{
   provider: string;
   samples: number;
-  lag_ge_2: number;
-  lag_gt_3: number;
-  max_lag: number;
+  lag_ge_24s: number;
+  lag_gt_36s: number;
+  max_lag_s: number;
 }>(
   `with heads as (
-     select evm_provider as provider, evm_block_number::bigint as head,
-            ${TICK} as tick
+     select evm_provider as provider, evm_chain_id as chain, evm_block_number::bigint as head,
+            ${BLOCK_SECONDS} as block_seconds, ${TICK} as tick
      from api_events
      where ${MEASURED} and evm_rpc_method = 'eth_blockNumber' and evm_block_number is not null
    ), lagged as (
-     select provider, max(head) over (partition by tick) - head as lag from heads
+     select provider, (max(head) over (partition by chain, tick) - head) * block_seconds as lag_s
+     from heads
    )
    select provider, count(*)::int as samples,
-     count(*) filter (where lag >= 2)::int as lag_ge_2,
-     count(*) filter (where lag > 3)::int as lag_gt_3,
-     coalesce(max(lag), 0)::int as max_lag
+     count(*) filter (where lag_s >= 24)::int as lag_ge_24s,
+     count(*) filter (where lag_s > 36)::int as lag_gt_36s,
+     coalesce(max(lag_s), 0)::float as max_lag_s
    from lagged group by 1 order by 1`,
   withInterval
 );
 
-// One verification run = every endpoint answering the same call pinned to the same height.
-const disagreements = await q<{ method: string; runs: number; disagreeing: number }>(
+// One verification run = every endpoint answering the same call pinned to the same height. An
+// error or a null is an endpoint that could not answer (often one not yet at that height), never
+// a differing answer.
+const disagreements = await q<{
+  chain: string;
+  method: string;
+  runs: number;
+  disagreeing: number;
+}>(
   `with runs as (
-     select evm_shadow_of_trace_id as run, evm_rpc_method as method, evm_block_number as block,
-            count(distinct evm_result_hash) filter (where evm_result_shape <> 'error_in_body') as answers
+     select evm_shadow_of_trace_id as run, evm_chain_id as chain, evm_rpc_method as method,
+            evm_block_number as block,
+            count(distinct evm_result_hash) filter (where evm_result_shape not in ('error_in_body', 'null')) as answers
      from api_events
      where project_id = $1 and evm_shadow_of_trace_id is not null
-     group by 1, 2, 3
+     group by 1, 2, 3, 4
    )
-   select method, count(*)::int as runs, count(*) filter (where answers > 1)::int as disagreeing
-   from runs group by 1 order by 1`
+   select chain, method, count(*)::int as runs,
+     count(*) filter (where answers > 1)::int as disagreeing
+   from runs group by 1, 2 order by 1, 2`
 );
 
 const minority = await q<{ provider: string; times_in_minority: number }>(
   `with answers as (
      select evm_shadow_of_trace_id as run, evm_block_number as block, evm_provider as provider, evm_result_hash as hash
      from api_events
-     where project_id = $1 and evm_shadow_of_trace_id is not null and evm_result_shape <> 'error_in_body'
+     where project_id = $1 and evm_shadow_of_trace_id is not null and evm_result_shape not in ('error_in_body', 'null')
    ), counted as (
      select run, block, hash, count(*) as votes from answers group by 1, 2, 3
    ), majority as (
@@ -164,7 +183,7 @@ const table = (head: string[], rows: Array<Array<string | number>>) =>
     ...rows.map((r) => `| ${r.join(" | ")} |`)
   ].join("\n");
 
-const report = `# Ethereum mainnet RPC reliability
+const report = `# EVM RPC reliability
 
 Project \`${projectId}\` · ${window.first.toISOString()} → ${window.last.toISOString()} (${hours.toFixed(1)} h) · ${window.calls.toLocaleString()} primary calls · polled every ${intervalSeconds}s
 
@@ -195,24 +214,29 @@ ${table(
   ])
 )}
 
-## Chain head lag (vs. the highest head any provider reported in the same tick)
+## Chain head lag (vs. the highest head any provider on the same chain reported in the same tick)
 
 ${table(
-  ["Provider", "Samples", "≥ 2 blocks behind", "> 3 blocks behind", "Worst"],
+  ["Provider", "Samples", "≥ 24 s behind", "> 36 s behind", "Worst"],
   headLag.map((r) => [
     r.provider,
     r.samples,
-    pct(r.lag_ge_2, r.samples),
-    pct(r.lag_gt_3, r.samples),
-    `${r.max_lag} blocks`
+    pct(r.lag_ge_24s, r.samples),
+    pct(r.lag_gt_36s, r.samples),
+    `${r.max_lag_s} s`
   ])
 )}
 
 ## Disagreement at equal height (verification runs)
 
 ${table(
-  ["Method", "Runs", "Runs with differing answers"],
-  disagreements.map((r) => [r.method, r.runs, `${r.disagreeing} (${pct(r.disagreeing, r.runs)})`])
+  ["Chain", "Method", "Runs", "Runs with differing answers"],
+  disagreements.map((r) => [
+    CHAIN_NAMES[r.chain] ?? r.chain ?? "—",
+    r.method,
+    r.runs,
+    `${r.disagreeing} (${pct(r.disagreeing, r.runs)})`
+  ])
 )}
 
 ${

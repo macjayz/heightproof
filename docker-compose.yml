@@ -83,7 +83,7 @@ services:
     depends_on:
       - api
 
-  # RPC reliability study: polls public mainnet endpoints through @heightproof/web3 with
+  # RPC reliability study: polls public Ethereum, Base and Arbitrum endpoints through @heightproof/web3 with
   # cross-provider verification. Opt-in: docker compose --profile study up -d
   # Report: docker compose --profile study run --rm study npm run study:report
   study:
