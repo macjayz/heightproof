@@ -34,6 +34,16 @@ export function createPool(config: WorkerConfig) {
   return pool;
 }
 
+/**
+ * Matches the endpoint hash, null included. Postgres cannot use an index for `is not distinct
+ * from`, so a known hash is compared with `=`. The parameter stays referenced either way.
+ */
+function endpointMatch(endpointHash: string | null | undefined, param: number) {
+  return endpointHash == null
+    ? `evm_endpoint_hash is null and $${param}::text is null`
+    : `evm_endpoint_hash = $${param}`;
+}
+
 export async function countRecentIpRequests(pool: pg.Pool, projectId: string, ip?: string) {
   if (!ip) return 0;
   const result = await pool.query(
@@ -87,6 +97,7 @@ export async function getWalletTransactionStats(
     from api_events
     where project_id = $1 and kind = 'evm_rpc' and wallet_address = $2
       and evm_rpc_method ~* 'sendrawtransaction|sendtransaction'
+      and timestamp > now() - interval '25 hours'
     `,
     [projectId, walletAddress]
   );
@@ -114,6 +125,7 @@ export async function getProviderRpcStats(pool: pg.Pool, projectId: string, prov
       )::int as recent_failures
     from api_events
     where project_id = $1 and kind = 'evm_rpc' and evm_provider = $2
+      and timestamp > now() - interval '24 hours'
     `,
     [projectId, provider]
   );
@@ -158,7 +170,7 @@ export async function getStaleHeadContext(
       select timestamp, evm_block_number
       from api_events
       where project_id = $1 and kind = 'evm_rpc' and evm_chain_id = $2
-        and evm_endpoint_hash is not distinct from $3
+        and ${endpointMatch(endpointHash, 3)}
         and evm_block_number is not null
         and (evm_block_tag is null or evm_block_tag = 'latest')
         and evm_shadow_of_trace_id is null
@@ -233,7 +245,7 @@ export async function getSilentFailureContext(
       select exists (
         select 1 from api_events
         where project_id = $1 and kind = 'evm_rpc' and evm_rpc_method = $2
-          and evm_endpoint_hash is not distinct from $3
+          and ${endpointMatch(endpointHash, 3)}
           and request_body -> 'params' ->> 0 = $4
           and evm_result_shape is not null and evm_result_shape <> 'null'
           and timestamp > now() - interval '24 hours'
@@ -252,7 +264,7 @@ export async function getSilentFailureContext(
       select exists (
         select 1 from api_events
         where project_id = $1 and kind = 'evm_rpc' and evm_rpc_method = $2
-          and evm_endpoint_hash is not distinct from $3
+          and ${endpointMatch(endpointHash, 3)}
           and request_body -> 'params' -> 0 = $4::jsonb
           and evm_result_shape = 'value'
           and (evm_block_number is null or $5::bigint is null or evm_block_number < $5::bigint)
@@ -270,7 +282,7 @@ export async function getSilentFailureContext(
       select evm_result_count as max_count, count(*)::int as hits
       from api_events
       where project_id = $1 and kind = 'evm_rpc' and evm_rpc_method = $2
-        and evm_endpoint_hash is not distinct from $3
+        and ${endpointMatch(endpointHash, 3)}
         and evm_result_count is not null
         and timestamp > now() - interval '24 hours'
       group by evm_result_count
@@ -480,7 +492,8 @@ export async function getThrottlingContext(
       )::int as baseline_degraded
     from api_events
     where project_id = $1 and kind = 'evm_rpc'
-      and evm_endpoint_hash is not distinct from $2
+      and ${endpointMatch(endpointHash, 2)}
+      and timestamp >= now() - interval '24 hours'
     `,
     [projectId, endpointHash ?? null]
   );
