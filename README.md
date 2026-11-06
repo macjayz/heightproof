@@ -129,6 +129,8 @@ const client = createPublicClient({
 Your RPC URL never leaves your process. Heightproof records a hash of the endpoint, never the URL
 itself, because provider URLs embed API keys.
 
+For a header-authenticated comparison endpoint, see the [BlockVectra example](docs/blockvectra.md). It uses the existing per-endpoint fetch hook and your own RPC credentials.
+
 ### Signed verification
 
 Add an [AirnodeHub](https://airnodehub.api3.org) endpoint to `verify` and every answer it gives
