@@ -129,6 +129,8 @@ const client = createPublicClient({
 Your RPC URL never leaves your process. Heightproof records a hash of the endpoint, never the URL
 itself, because provider URLs embed API keys.
 
+For an opt-in comparison using your own providers, see the [provider comparison example](examples/provider-comparison/README.md). It supports environment-supplied header credentials through the existing per-endpoint fetch hook.
+
 ### Signed verification
 
 Add an [AirnodeHub](https://airnodehub.api3.org) endpoint to `verify` and every answer it gives
