@@ -93,12 +93,3 @@ For the [zero log timestamp investigation](https://github.com/OffchainLabs/nitro
 the useful distinction was identical log identities with a different `blockTimestamp`.
 This table is an interpretation checklist, not a claim that Heightproof automatically
 classifies all three cases or that any provider passed a live compatibility test.
-
-## Optional provider setup notes
-
-For BlockVectra, select the authenticated URL for your chain from its
-[chain directory](https://api.blockvectra.com/v1/chains), then use `x-api-key` as
-`COMPARISON_RPC_HEADER` with your own key as `COMPARISON_RPC_KEY`. Confirm method and
-history support using the [coverage guide](https://docs.blockvectra.com/en/guides/choose-rpc-provider/).
-The documentation-only MCP URL is not a JSON-RPC comparison endpoint. This note does
-not choose an endpoint, enable verification or imply a provider recommendation.
